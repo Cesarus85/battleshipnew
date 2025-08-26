@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>AR Battleship – Step 3 (Schiffe-Editor)</title>
+  <title>AR Battleship – Step 4 (KI & Runden)</title>
   <link rel="stylesheet" href="./styles.css" />
   <style>
     #fleet { display:flex; gap:8px; flex-wrap:wrap; font-size:14px; opacity:.95; }
@@ -11,6 +11,7 @@
     #setupBtns { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
     #setupBtns button { min-width:150px; }
     #phase { font-weight:600; color:#7bdcff; }
+    #turn { font-weight:600; }
   </style>
 </head>
 <body>
@@ -18,7 +19,7 @@
   <div id="overlay">
     <div id="ui">
       <h1>AR Battleship</h1>
-      <p id="status">AR starten → Reticle auf Tisch → <strong>Trigger/Pinch platziert</strong> das Brett.</p>
+      <p id="status">AR starten → Reticle auf Tisch → <strong>Trigger/Pinch platziert</strong> die Bretter.</p>
 
       <div class="buttons">
         <button id="btnStart">AR starten</button>
@@ -45,6 +46,14 @@
         </div>
       </div>
 
+      <div id="playUi" style="margin-top:10px;">
+        <div>Spiel: <span id="turn">–</span></div>
+        <div style="font-size:13px;opacity:.9">
+          ✦ <strong>Links</strong>: Dein Brett (eigene Schiffe sichtbar) &nbsp;|&nbsp; ✦ <strong>Rechts</strong>: Gegner (Schiffe verborgen).<br>
+          Du zielst auf das rechte Brett und drückst Trigger.
+        </div>
+      </div>
+
       <div id="hud">
         <div><strong>Hover:</strong> <span id="hoverCell">–</span></div>
         <div><strong>Auswahl:</strong> <span id="lastPick">–</span></div>
@@ -59,7 +68,6 @@
   </div>
 
   <canvas id="xr-canvas"></canvas>
-
   <script type="module" src="./main.js"></script>
 </body>
 </html>
