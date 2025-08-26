@@ -10,7 +10,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 }
 #ui {
   pointer-events: auto;
-  width: min(520px, 90vw);
+  width: min(560px, 92vw);
   background: var(--bg); color: var(--fg);
   backdrop-filter: blur(8px);
   border: 1px solid rgba(255,255,255,0.2);
@@ -26,5 +26,7 @@ button {
 button:disabled { opacity: 0.45; }
 #btnPlace { background: #19b26b; }
 #btnReset { background: #444; }
+
+#hud { display: flex; gap: 16px; font-size: 15px; margin: 6px 0 8px 0; }
 #hints { font-size: 14px; opacity: 0.9; }
 strong { color: var(--acc); }
