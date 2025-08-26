@@ -1,4 +1,4 @@
-// AR-Bootstrap + Brett-Platzierung + Zell-Picking (Schritt 2)
+// AR-Bootstrap + Brett-Platzierung + Zell-Picking + Zielmodus (Kopf/Hand/Controller)
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { Board } from "./board.js";
 import { Picker } from "./picking.js";
@@ -11,6 +11,9 @@ const btnPlace = document.getElementById("btnPlace");
 const btnReset = document.getElementById("btnReset");
 const hoverCellEl = document.getElementById("hoverCell");
 const lastPickEl = document.getElementById("lastPick");
+const btnAimGaze = document.getElementById("btnAimGaze");
+const btnAimController = document.getElementById("btnAimController");
+const aimInfoEl = document.getElementById("aimInfo");
 
 let renderer, scene, camera;
 let xrSession = null;
@@ -22,6 +25,9 @@ let lastHitPose = null;
 
 let board = null;
 let picker = null;
+
+// Zielmodus: "gaze" | "controller"
+let aimMode = "gaze";
 
 initGL();
 wireUI();
@@ -39,7 +45,7 @@ function initGL() {
   const ambient = new THREE.HemisphereLight(0xffffff, 0x222244, 0.8);
   scene.add(ambient);
 
-  // Reticle
+  // Reticle (für Platzierung)
   const ringGeo = new THREE.RingGeometry(0.07, 0.075, 48);
   ringGeo.rotateX(-Math.PI / 2);
   const ringMat = new THREE.MeshBasicMaterial({ color: 0x7bdcff, transparent: true, opacity: 0.9 });
@@ -64,6 +70,18 @@ function wireUI() {
   btnStart.addEventListener("click", startAR);
   btnPlace.addEventListener("click", placeBoard);
   btnReset.addEventListener("click", resetBoard);
+
+  btnAimGaze.addEventListener("click", () => setAimMode("gaze"));
+  btnAimController.addEventListener("click", () => setAimMode("controller"));
+}
+
+function setAimMode(mode) {
+  aimMode = mode;
+  btnAimGaze.classList.toggle("active", aimMode === "gaze");
+  btnAimController.classList.toggle("active", aimMode === "controller");
+  aimInfoEl.textContent = aimMode === "gaze"
+    ? "Zielen über Kopfblick."
+    : "Zielen über Hand/Controller-Ray.";
 }
 
 async function startAR() {
@@ -74,7 +92,7 @@ async function startAR() {
   try {
     const sessionInit = {
       requiredFeatures: ["hit-test", "dom-overlay"],
-      optionalFeatures: ["anchors", "hand-tracking"],
+      optionalFeatures: ["anchors", "hand-tracking"], // Hand-Tracking optional
       domOverlay: { root: overlay }
     };
     xrSession = await navigator.xr.requestSession("immersive-ar", sessionInit);
@@ -82,7 +100,8 @@ async function startAR() {
     await renderer.xr.setSession(xrSession);
 
     xrSession.addEventListener("end", onSessionEnd);
-    xrSession.addEventListener("select", onSelect); // Trigger zum Markieren
+    xrSession.addEventListener("select", onSelect);
+    xrSession.addEventListener("inputsourceschange", onInputSourcesChange);
 
     localRefSpace = await xrSession.requestReferenceSpace("local");
     viewerSpace = await xrSession.requestReferenceSpace("viewer");
@@ -92,6 +111,8 @@ async function startAR() {
     btnPlace.disabled = true;
     btnReset.disabled = true;
     btnStart.disabled = true;
+
+    setAimMode(aimMode); // UI-Text initialisieren
 
     renderer.setAnimationLoop(onXRFrame);
   } catch (err) {
@@ -103,6 +124,7 @@ async function startAR() {
 function onSessionEnd() {
   renderer.setAnimationLoop(null);
   xrSession?.removeEventListener("select", onSelect);
+  xrSession?.removeEventListener("inputsourceschange", onInputSourcesChange);
   xrSession = null;
   hitTestSource = null;
   lastHitPose = null;
@@ -111,6 +133,22 @@ function onSessionEnd() {
   btnPlace.disabled = true;
   btnReset.disabled = !!board;
   statusEl.textContent = "Session beendet.";
+  aimInfoEl.textContent = "";
+}
+
+function onInputSourcesChange() {
+  // Kurze Info aktualisieren (z. B. wenn Controller verbunden/gelöst werden)
+  if (!xrSession) return;
+  const src = pickActiveInputSource();
+  if (!src) {
+    if (aimMode === "controller") {
+      aimInfoEl.textContent = "Kein Hand/Controller-Ray. Bitte Controller anziehen oder Handtracking aktivieren.";
+    }
+    return;
+  }
+  aimInfoEl.textContent = aimMode === "controller"
+    ? `Ray aktiv: ${src.handedness === "right" ? "rechts" : src.handedness === "left" ? "links" : "neutral"}`
+    : "Zielen über Kopfblick.";
 }
 
 function onXRFrame(time, frame) {
@@ -133,10 +171,28 @@ function onXRFrame(time, frame) {
       btnPlace.disabled = true;
     }
   } else {
-    // Zell-Hover aktualisieren (Kopfblick)
-    const { changed, cell } = picker.update(camera);
-    if (changed) {
-      hoverCellEl.textContent = cell ? board.cellLabel(cell.row, cell.col) : "–";
+    // Zell-Hover je nach Zielmodus
+    if (aimMode === "gaze") {
+      const { changed, cell } = picker.updateFromCamera(camera);
+      if (changed) hoverCellEl.textContent = cell ? board.cellLabel(cell.row, cell.col) : "–";
+      aimInfoEl.textContent = "Zielen über Kopfblick.";
+    } else {
+      const src = pickActiveInputSource();
+      if (!src) {
+        aimInfoEl.textContent = "Kein Hand/Controller-Ray. Bitte Controller/Handtracking nutzen.";
+        // Hover ausblenden
+        picker.updateWithRay(new THREE.Vector3(1e6,1e6,1e6), new THREE.Vector3(0,-1,0)); // garantiert kein Hit
+      } else {
+        const pose = frame.getPose(src.targetRaySpace, localRefSpace);
+        if (pose) {
+          const { origin, dir } = originDirFromXRPose(pose);
+          const { changed, cell } = picker.updateWithRay(origin, dir);
+          if (changed) hoverCellEl.textContent = cell ? board.cellLabel(cell.row, cell.col) : "–";
+          aimInfoEl.textContent = `Ray aktiv: ${src.handedness === "right" ? "rechts" : src.handedness === "left" ? "links" : "neutral"}`;
+        } else {
+          aimInfoEl.textContent = "Ray-Pose nicht verfügbar.";
+        }
+      }
     }
   }
 
@@ -145,7 +201,6 @@ function onXRFrame(time, frame) {
 
 function placeBoard() {
   if (!lastHitPose || board) return;
-
   const poseM = new THREE.Matrix4().fromArray(lastHitPose.matrix ?? matrixFromTransform(lastHitPose));
   board = new Board(0.50, 10);
   board.placeAtMatrix(poseM);
@@ -156,7 +211,7 @@ function placeBoard() {
   reticle.visible = false;
   btnPlace.disabled = true;
   btnReset.disabled = false;
-  statusEl.textContent = "Brett gesetzt. Zielen per Kopf; Trigger/Tippen markiert Zelle.";
+  statusEl.textContent = "Brett gesetzt. Zielen: Kopf oder Hand/Controller. Trigger/Pinch zum Markieren.";
 }
 
 function resetBoard() {
@@ -172,15 +227,38 @@ function resetBoard() {
   }
 }
 
-function onSelect() {
+function onSelect(event) {
   if (!board || !picker.hoverCell) return;
   const { row, col } = picker.hoverCell;
   board.markCell(row, col, 0xffffff, 0.55);
   lastPickEl.textContent = board.cellLabel(row, col);
 }
 
-// Helper für ältere XRTransform-Objekte
+/* ---------- Helpers ---------- */
+
+function pickActiveInputSource() {
+  if (!xrSession) return null;
+  let right = null, left = null, any = null;
+  for (const src of xrSession.inputSources) {
+    // Controller UND Hände liefern "tracked-pointer"
+    if (src.targetRayMode === "tracked-pointer") {
+      any = any || src;
+      if (src.handedness === "right") right = src;
+      else if (src.handedness === "left") left = src;
+    }
+  }
+  return right || left || any;
+}
+
+function originDirFromXRPose(pose) {
+  const m = new THREE.Matrix4().fromArray(pose.transform.matrix ?? matrixFromTransform(pose.transform));
+  const origin = new THREE.Vector3().setFromMatrixPosition(m);
+  const q = new THREE.Quaternion().setFromRotationMatrix(m);
+  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(q).normalize();
+  return { origin, dir };
+}
+
+// Fallback falls transform.matrix nicht direkt verfügbar ist
 function matrixFromTransform(t) {
-  // Fallback falls t.matrix nicht direkt verfügbar ist
   return (new XRRigidTransform(t.position, t.orientation)).matrix;
 }
