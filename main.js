@@ -1,14 +1,14 @@
-// AR + Diagnose-Overlay + Safe-Mode + Zielmodus + Trigger-Placement
+// AR + Diagnose + Zielmodus + Trigger-Placement + Schiffe-Editor (Setup)
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { Board } from "./board.js";
 import { Picker } from "./picking.js";
+import { FleetManager } from "./ships.js";
 
 const canvas = document.getElementById("xr-canvas");
 const overlay = document.getElementById("overlay");
 const statusEl = document.getElementById("status");
 const btnStart = document.getElementById("btnStart");
 const btnStartSafe = document.getElementById("btnStartSafe");
-const btnPlace = document.getElementById("btnPlace");
 const btnReset = document.getElementById("btnReset");
 const hoverCellEl = document.getElementById("hoverCell");
 const lastPickEl = document.getElementById("lastPick");
@@ -18,6 +18,13 @@ const aimInfoEl = document.getElementById("aimInfo");
 const debugEl = document.getElementById("debug");
 const btnDiag = document.getElementById("btnDiag");
 const btnPerms = document.getElementById("btnPerms");
+
+// Setup UI
+const phaseEl = document.getElementById("phase");
+const fleetEl = document.getElementById("fleet");
+const btnRotate = document.getElementById("btnRotate");
+const btnUndo = document.getElementById("btnUndo");
+const btnStartGame = document.getElementById("btnStartGame");
 
 let renderer, scene, camera;
 let xrSession = null;
@@ -29,12 +36,16 @@ let lastHitPose = null;
 
 let board = null;
 let picker = null;
+let fleet = null;
 
 // Zielmodus: "gaze" | "controller"
 let aimMode = "gaze";
 
-// Game-Phase: "placement" -> Trigger platziert Brett; "play" -> Trigger markiert Zellen
+// Game-Phase: "placement" -> Brett platzieren; "setup" -> Schiffe setzen; "play" -> Spiel
 let phase = "placement";
+
+// Setup-State
+let orientation = "H"; // "H" oder "V"
 
 initGL();
 wireUI();
@@ -66,6 +77,7 @@ function initGL() {
   picker = new Picker(scene);
 
   window.addEventListener("resize", onResize);
+  setPhase("placement");
 }
 
 function onResize() {
@@ -77,8 +89,7 @@ function onResize() {
 function wireUI() {
   btnStart.addEventListener("click", () => startAR("regular"));
   btnStartSafe.addEventListener("click", () => startAR("safe"));
-  btnPlace.addEventListener("click", placeBoard);           // Fallback (optional)
-  btnReset.addEventListener("click", resetBoard);
+  btnReset.addEventListener("click", resetAll);
 
   btnAimGaze.addEventListener("click", () => setAimMode("gaze"));
   btnAimController.addEventListener("click", () => setAimMode("controller"));
@@ -87,15 +98,22 @@ function wireUI() {
   btnPerms.addEventListener("click", () => {
     statusEl.textContent = "Quest-Browser → Seiteneinstellungen: 'Passthrough/AR' & 'Bewegung/Tracking' erlauben. Falls früher abgelehnt: Berechtigungen zurücksetzen und Seite neu laden.";
   });
+
+  btnRotate.addEventListener("click", rotateShip);
+  btnUndo.addEventListener("click", undoShip);
+  btnStartGame.addEventListener("click", startGame);
 }
 
 function setAimMode(mode) {
   aimMode = mode;
   btnAimGaze.classList.toggle("active", aimMode === "gaze");
   btnAimController.classList.toggle("active", aimMode === "controller");
-  aimInfoEl.textContent = aimMode === "gaze"
-    ? "Zielen über Kopfblick."
-    : "Zielen über Hand/Controller-Ray.";
+  aimInfoEl.textContent = aimMode === "gaze" ? "Zielen über Kopfblick." : "Zielen über Hand/Controller-Ray.";
+}
+
+function setPhase(p) {
+  phase = p;
+  phaseEl.textContent = p;
 }
 
 async function diagnose() {
@@ -104,7 +122,6 @@ async function diagnose() {
   lines.push(`User-Agent: ${ua}`);
   lines.push(`Secure Context: ${window.isSecureContext} (${location.protocol})`);
   lines.push(`navigator.xr: ${!!navigator.xr}`);
-
   try {
     const arSup = await navigator.xr?.isSessionSupported?.("immersive-ar");
     const vrSup = await navigator.xr?.isSessionSupported?.("immersive-vr");
@@ -113,7 +130,6 @@ async function diagnose() {
   } catch (e) {
     lines.push(`isSessionSupported() Fehler: ${e?.name} – ${e?.message}`);
   }
-
   debugEl.innerHTML = `<strong>Diagnose</strong>\n${lines.join("\n")}\n\nTipps:\n• HTTPS nötig (https:// oder https://localhost)\n• Quest-Browser aktuell?\n• Berechtigungen erteilt?`;
 }
 
@@ -123,7 +139,6 @@ async function startAR(mode = "regular") {
     await diagnose();
     return;
   }
-
   try {
     const supported = await navigator.xr.isSessionSupported?.("immersive-ar");
     if (supported === false) {
@@ -131,8 +146,6 @@ async function startAR(mode = "regular") {
       await diagnose();
       return;
     }
-
-    // Session-Configs
     const configs = mode === "safe"
       ? [
           { note: "SAFE: minimale Features", init: { requiredFeatures: [], optionalFeatures: [] } },
@@ -150,90 +163,63 @@ async function startAR(mode = "regular") {
         console.log("[XR] gestartet mit:", cfg.note);
         statusEl.textContent = `AR gestartet (${cfg.note}).`;
         break;
-      } catch (e) {
-        lastErr = e;
-        console.warn("[XR] Startversuch fehlgeschlagen:", cfg.note, e);
-      }
+      } catch (e) { lastErr = e; }
     }
     if (!xrSession) throw lastErr || new Error("requestSession fehlgeschlagen (unbekannt)");
 
     renderer.xr.setReferenceSpaceType("local");
     await renderer.xr.setSession(xrSession);
 
-    // Events
     xrSession.addEventListener("end", onSessionEnd);
     xrSession.addEventListener("select", onSelect);
+    xrSession.addEventListener("squeezestart", onSqueeze);
     xrSession.addEventListener("inputsourceschange", onInputSourcesChange);
 
-    // Reference Spaces
     localRefSpace = await xrSession.requestReferenceSpace("local");
     viewerSpace = await xrSession.requestReferenceSpace("viewer");
 
-    // Hit-Test (falls verfügbar)
     try {
       hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
       statusEl.textContent += " | hit-test aktiv.";
-    } catch (e) {
+    } catch {
       hitTestSource = null;
       statusEl.textContent += " | hit-test NICHT verfügbar.";
     }
 
-    const hasDomOverlay = !!xrSession.domOverlayState;
-    statusEl.textContent =
-      (hasDomOverlay ? "DOM-Overlay aktiv. " : "DOM-Overlay nicht verfügbar. ") +
-      "Richte die Reticle auf die Tischfläche. " +
-      "➡ Drücke **Trigger/Pinch zum Platzieren**.";
-
-    // Startzustand
-    phase = "placement";
-    btnPlace.disabled = true;      // Fallback-Button bleibt deaktiviert
+    btnStart.disabled = true; btnStartSafe.disabled = true;
     btnReset.disabled = true;
-    btnStart.disabled = true;
-    btnStartSafe.disabled = true;
     setAimMode(aimMode);
-
+    setPhase("placement");
     renderer.setAnimationLoop(onXRFrame);
   } catch (err) {
-    const msg = `AR-Start fehlgeschlagen: ${err?.name || "Error"} – ${err?.message || err}`;
-    console.error(msg);
-    statusEl.textContent = `${msg}\n• HTTPS/Quest-Browser/Berechtigungen prüfen.`;
-    debugEl.textContent = `[Fehlerdetails]\n${msg}\n\nFalls weiterhin Probleme: Seite neu laden, Safe-Mode probieren, dann Diagnose posten.`;
+    statusEl.textContent = `AR-Start fehlgeschlagen: ${err?.name || "Error"} – ${err?.message || err}`;
   }
 }
 
 function onSessionEnd() {
   renderer.setAnimationLoop(null);
   xrSession?.removeEventListener("select", onSelect);
+  xrSession?.removeEventListener("squeezestart", onSqueeze);
   xrSession?.removeEventListener("inputsourceschange", onInputSourcesChange);
-  xrSession = null;
-  hitTestSource = null;
-  lastHitPose = null;
+  xrSession = null; hitTestSource = null; lastHitPose = null;
   reticle.visible = false;
-  btnStart.disabled = false;
-  btnStartSafe.disabled = false;
-  btnPlace.disabled = true;
+  btnStart.disabled = false; btnStartSafe.disabled = false;
   btnReset.disabled = !!board;
-  statusEl.textContent = "Session beendet.";
   aimInfoEl.textContent = "";
-  phase = "placement";
+  setPhase("placement");
 }
 
 function onInputSourcesChange() {
   if (!xrSession) return;
   const src = pickActiveInputSource();
   aimInfoEl.textContent = src
-    ? (aimMode === "controller"
-        ? `Ray aktiv: ${src.handedness || "neutral"}`
-        : "Zielen über Kopfblick.")
-    : (aimMode === "controller"
-        ? "Kein Hand/Controller-Ray. Bitte Controller anziehen oder Handtracking aktivieren."
-        : "Zielen über Kopfblick.");
+    ? (aimMode === "controller" ? `Ray aktiv: ${src.handedness || "neutral"}` : "Zielen über Kopfblick.")
+    : (aimMode === "controller" ? "Kein Hand/Controller-Ray." : "Zielen über Kopfblick.");
 }
 
 function onXRFrame(time, frame) {
   if (!frame) return;
 
-  // Platzierungs-Hit-Test (falls verfügbar)
   if (phase === "placement") {
     const results = hitTestSource ? frame.getHitTestResults(hitTestSource) : [];
     if (results.length > 0) {
@@ -241,89 +227,140 @@ function onXRFrame(time, frame) {
       lastHitPose = pose && pose.transform;
       if (lastHitPose) {
         const m = new THREE.Matrix4().fromArray(lastHitPose.matrix ?? matrixFromTransform(lastHitPose));
-        reticle.visible = true;
-        reticle.matrix.copy(m);
-        btnPlace.disabled = false; // Fallback wäre möglich
+        reticle.visible = true; reticle.matrix.copy(m);
       }
-    } else {
-      reticle.visible = false;
-      btnPlace.disabled = true;
-    }
+    } else { reticle.visible = false; }
   } else {
-    // Zell-Hover je nach Zielmodus
-    if (aimMode === "gaze") {
-      const { changed, cell } = picker.updateFromCamera(camera);
-      if (changed) hoverCellEl.textContent = cell ? board.cellLabel(cell.row, cell.col) : "–";
-    } else {
-      const src = pickActiveInputSource();
-      if (!src) {
-        picker.updateWithRay(new THREE.Vector3(1e6,1e6,1e6), new THREE.Vector3(0,-1,0)); // hide
-      } else {
-        const pose = frame.getPose(src.targetRaySpace, localRefSpace);
-        if (pose) {
-          const { origin, dir } = originDirFromXRPose(pose);
-          const { changed, cell } = picker.updateWithRay(origin, dir);
-          if (changed) hoverCellEl.textContent = cell ? board.cellLabel(cell.row, cell.col) : "–";
-        }
-      }
+    // Hover je nach Zielmodus
+    const cell = updateHover();
+    if (phase === "setup" && board && cell) {
+      const L = fleet.currentLength();
+      const valid = board.canPlaceShip(cell.row, cell.col, L, orientation);
+      board.showGhost(cell.row, cell.col, L, orientation, valid);
+    } else if (phase === "setup" && board) {
+      board.clearGhost();
     }
   }
 
   renderer.render(scene, camera);
 }
 
-function placeBoard() {
-  if (!lastHitPose || board) {
-    if (!hitTestSource) statusEl.textContent = "Hit-Test nicht verfügbar. Safe-Mode gestartet? Dann ist Platzierung deaktiviert.";
-    return;
+function updateHover() {
+  if (!board) return null;
+  if (aimMode === "gaze") {
+    const { changed, cell } = picker.updateFromCamera(camera);
+    if (changed) hoverCellEl.textContent = cell ? board.cellLabel(cell.row, cell.col) : "–";
+    return picker.hoverCell || null;
+  } else {
+    const src = pickActiveInputSource();
+    if (!src) { picker.updateWithRay(new THREE.Vector3(1e6,1e6,1e6), new THREE.Vector3(0,-1,0)); return null; }
+    const pose = renderer.xr.getFrame().getPose(src.targetRaySpace, localRefSpace);
+    if (!pose) return null;
+    const { origin, dir } = originDirFromXRPose(pose);
+    const { changed, cell } = picker.updateWithRay(origin, dir);
+    if (changed) hoverCellEl.textContent = cell ? board.cellLabel(cell.row, cell.col) : "–";
+    return picker.hoverCell || null;
   }
+}
+
+function placeBoardAtReticle() {
+  if (!lastHitPose || board) return;
   const poseM = new THREE.Matrix4().fromArray(lastHitPose.matrix ?? matrixFromTransform(lastHitPose));
   board = new Board(0.50, 10);
   board.placeAtMatrix(poseM);
   board.addToScene(scene);
-
   picker.setBoard(board);
-
   reticle.visible = false;
-  btnPlace.disabled = true;
   btnReset.disabled = false;
 
-  phase = "play";
-  statusEl.textContent = "Brett gesetzt. Zielen: Kopf oder Hand/Controller. Trigger/Pinch markiert Zellen.";
+  // Setup starten
+  fleet = new FleetManager([5,4,3,3,2]);
+  setPhase("setup");
+  updateFleetUI();
+  statusEl.textContent = "Schiffe setzen: Ziel auf Zelle → Trigger platziert, Squeeze dreht (H/V).";
 }
 
-function resetBoard() {
+function onSelect() {
+  if (phase === "placement") { placeBoardAtReticle(); return; }
+  if (phase === "setup") {
+    const cell = picker.hoverCell; if (!cell) return;
+    const L = fleet.currentLength(); if (!L) return;
+    const ok = board.canPlaceShip(cell.row, cell.col, L, orientation);
+    if (!ok) { statusEl.textContent = "Ungültige Position (außerhalb oder Kollision)."; return; }
+    board.placeShip(cell.row, cell.col, L, orientation);
+    fleet.advance(cell.row, cell.col, L, orientation);
+    lastPickEl.textContent = board.cellLabel(cell.row, cell.col);
+    updateFleetUI();
+    // Ghost verschwindet, wird im nächsten Frame neu berechnet
+    board.clearGhost();
+    if (fleet.complete()) {
+      btnStartGame.disabled = false;
+      statusEl.textContent = "Flotte komplett. „Spiel starten“ aktiv.";
+    }
+    return;
+  }
+  if (phase === "play") {
+    if (!picker.hoverCell) return;
+    const { row, col } = picker.hoverCell;
+    board.markCell(row, col, 0xffffff, 0.55);
+    lastPickEl.textContent = board.cellLabel(row, col);
+  }
+}
+
+function onSqueeze() {
+  if (phase === "setup") rotateShip();
+}
+
+function rotateShip() {
+  orientation = (orientation === "H") ? "V" : "H";
+  updateFleetUI();
+}
+
+function undoShip() {
+  if (!board || !fleet) return;
+  const last = board.undoLastShip();
+  if (!last) return;
+  fleet.undo(); // fügt die Länge wieder ein
+  btnStartGame.disabled = true;
+  updateFleetUI();
+}
+
+function startGame() {
+  if (!fleet || !fleet.complete()) return;
+  setPhase("play");
+  board.clearGhost();
+  statusEl.textContent = "Spielphase: Zielen & Trigger → Schuss markieren (proto).";
+}
+
+function resetAll() {
   if (board) {
     picker.setBoard(null);
     board.removeFromScene(scene);
     board.dispose();
     board = null;
-    hoverCellEl.textContent = "–";
-    lastPickEl.textContent = "–";
-    statusEl.textContent = "Brett entfernt. Richte Reticle wieder auf die Fläche. Trigger zum Platzieren.";
-    btnReset.disabled = true;
-    reticle.visible = false;
-    phase = "placement";
   }
+  hoverCellEl.textContent = "–";
+  lastPickEl.textContent = "–";
+  statusEl.textContent = "Zurückgesetzt. Richte Reticle auf die Fläche und starte erneut.";
+  btnReset.disabled = true;
+  setPhase("placement");
 }
 
-function onSelect() {
-  // Trigger/Pinch je nach Phase
-  if (phase === "placement") {
-    // Platziere an aktueller Reticle-Pose
-    if (!lastHitPose) return; // falls gerade kein Hit
-    placeBoard();
-    return;
+function updateFleetUI() {
+  // Phase-Text
+  phaseEl.textContent = phase + (phase === "setup" ? ` (Ori: ${orientation})` : "");
+  // Pillen bauen
+  if (!fleet) { fleetEl.innerHTML = ""; btnUndo.disabled = true; btnStartGame.disabled = true; return; }
+  const remain = fleet.summary();
+  const orderStr = fleet.order.length ? `Als Nächstes: ${fleet.order[0]}er` : "–";
+  const parts = [];
+  for (const L of [5,4,3,2]) {
+    const n = remain[L] || 0;
+    parts.push(`<span class="pill">${L}er × ${n}</span>`);
   }
-
-  // phase === "play"
-  if (!board || !picker.hoverCell) return;
-  const { row, col } = picker.hoverCell;
-  board.markCell(row, col, 0xffffff, 0.55);
-  lastPickEl.textContent = board.cellLabel(row, col);
+  fleetEl.innerHTML = `${parts.join(" ")} &nbsp; | &nbsp; <strong>${orderStr}</strong>`;
+  btnUndo.disabled = fleet.placed.length === 0;
 }
-
-/* ---------- Helpers ---------- */
 
 function pickActiveInputSource() {
   if (!xrSession) return null;
@@ -345,7 +382,6 @@ function originDirFromXRPose(pose) {
   const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(q).normalize();
   return { origin, dir };
 }
-
 function matrixFromTransform(t) {
   return (new XRRigidTransform(t.position, t.orientation)).matrix;
 }
