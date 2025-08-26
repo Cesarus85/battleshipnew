@@ -23,13 +23,11 @@ export class FleetManager {
   undo() {
     if (!this.placed.length) return null;
     const last = this.placed.pop();
-    // füge Länge wieder vorn ein, damit Reihenfolge gewahrt bleibt
     this.order.unshift(last.length);
     return last;
   }
 
   summary() {
-    // zähle pro Länge
     const cnt = {};
     for (const L of [2,3,4,5,6]) cnt[L] = 0;
     for (const L of this.order) cnt[L] = (cnt[L] || 0) + 1;
