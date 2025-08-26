@@ -1,4 +1,5 @@
-// Board-Modell & Geometrie (10x10 Grid), Welt<->Zell-Koordinaten, Marker
+// board.js
+// Board-Modell & Geometrie (10x10 Grid), Welt<->Zell-Koordinaten, Marker (lokal!)
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 
 export class Board {
@@ -22,17 +23,25 @@ export class Board {
   }
 
   _buildGeometry() {
-    // Base
+    // Base (liegt in Board-Lokal bei y=0, Normale +y)
     const baseGeo = new THREE.PlaneGeometry(this.size, this.size);
     baseGeo.rotateX(-Math.PI / 2);
     const baseMat = new THREE.MeshStandardMaterial({
-      color: 0x0d1b2a, metalness: 0.0, roughness: 1.0, transparent: true, opacity: 0.7
+      color: 0x0d1b2a,
+      metalness: 0.0,
+      roughness: 1.0,
+      transparent: true,
+      opacity: 0.7,
+      // Schiebt die Base minimal "nach unten", damit Marker/Lines sauber drüber liegen
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1
     });
     const base = new THREE.Mesh(baseGeo, baseMat);
     base.receiveShadow = false;
     this.group.add(base);
 
-    // Grid-Linien
+    // Grid-Linien leicht über der Base
     const lines = this._makeGridLines();
     lines.position.y += 0.001;
     this.group.add(lines);
@@ -83,7 +92,7 @@ export class Board {
 
   // Ray (Weltkoords) -> Zelle
   raycastCell(worldRayOrigin, worldRayDir) {
-    // In Board-Lokalkoordinaten
+    // In Board-Lokalkoordinaten umrechnen
     const o = worldRayOrigin.clone().applyMatrix4(this.inverseMatrix);
     const d = worldRayDir.clone().transformDirection(this.inverseMatrix);
 
@@ -98,55 +107,60 @@ export class Board {
     const half = this.size / 2;
     if (x < -half || x > half || z < -half || z > half) return { hit: false };
 
-    const u = (x + half) / this.size;
-    const v = (z + half) / this.size;
+    const u = (x + half) / this.size;  // 0..1
+    const v = (z + half) / this.size;  // 0..1
 
     let col = Math.floor(u * this.cells);
     let row = Math.floor(v * this.cells);
     if (col === this.cells) col = this.cells - 1;
     if (row === this.cells) row = this.cells - 1;
 
-    const centerLocal = new THREE.Vector3(
-      -half + (col + 0.5) * this.cellSize,
-      0,
-      -half + (row + 0.5) * this.cellSize
-    );
+    // Zentrum in Weltkoords für Hover
+    const centerLocal = this.cellCenterLocal(row, col);
     const centerWorld = centerLocal.clone().applyMatrix4(this.group.matrixWorld);
 
     return { hit: true, row, col, centerWorld };
   }
 
-  cellLabel(row, col) {
-    const letter = String.fromCharCode(65 + col); // A..J
-    return `${letter}-${row + 1}`;
-  }
-
-  markCell(row, col, color = 0xffffff, opacity = 0.6) {
-    const key = `${row},${col}`;
-    if (this.markers.has(key)) return;
-
-    const r = (this.cellSize * 0.45);
-    const geo = new THREE.CircleGeometry(r, 40);
-    geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity });
-    const mesh = new THREE.Mesh(geo, mat);
-
-    const c = this.cellCenterWorld(row, col);
-    mesh.position.copy(c);
-    mesh.position.y += 0.002;
-
-    this.group.add(mesh);
-    this.markers.set(key, mesh);
-  }
-
-  cellCenterWorld(row, col) {
+  // Zellzentrum in lokalen Board-Koordinaten (y=0)
+  cellCenterLocal(row, col) {
     const half = this.size / 2;
-    const local = new THREE.Vector3(
+    return new THREE.Vector3(
       -half + (col + 0.5) * this.cellSize,
       0,
       -half + (row + 0.5) * this.cellSize
     );
-    return local.applyMatrix4(this.group.matrixWorld);
+  }
+
+  // Komfort: Weltkoordinaten des Zellzentrums
+  cellCenterWorld(row, col) {
+    return this.cellCenterLocal(row, col).applyMatrix4(this.group.matrixWorld);
+  }
+
+  cellLabel(row, col) {
+    const letter = String.fromCharCode(65 + col); // A..J
+    return `${letter}-${row + 1}`;               // 1..10
+  }
+
+  // Marker jetzt korrekt in LOKALEN Koordinaten platzieren
+  markCell(row, col, color = 0xffffff, opacity = 0.6) {
+    const key = `${row},${col}`;
+    if (this.markers.has(key)) return; // doppelt vermeiden
+
+    const r = (this.cellSize * 0.45);
+    const geo = new THREE.CircleGeometry(r, 40);
+    geo.rotateX(-Math.PI / 2); // liegt in Board-Ebene (lokal)
+
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity });
+    const mesh = new THREE.Mesh(geo, mat);
+
+    // Lokales Zentrum + kleiner lokaler Offset nach oben
+    const local = this.cellCenterLocal(row, col);
+    mesh.position.copy(local);
+    mesh.position.y += 0.001;
+
+    this.group.add(mesh);
+    this.markers.set(key, mesh);
   }
 
   clearMarkers() {
