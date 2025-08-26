@@ -21,11 +21,16 @@ h1 { font-size: 20px; margin: 0 0 8px; }
 .buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 button {
   flex: 1 1 auto; min-width: 140px; padding: 12px 14px; font-size: 16px;
-  border-radius: 12px; border: 0; background: #1f87ff; color: #fff;
+  border-radius: 12px; border: 0; background: #1f87ff; color: #fff; cursor: pointer;
 }
-button:disabled { opacity: 0.45; }
+button:disabled { opacity: 0.45; cursor: default; }
 #btnPlace { background: #19b26b; }
 #btnReset { background: #444; }
+
+.toggle { display: flex; gap: 8px; align-items: center; margin: 6px 0 10px; flex-wrap: wrap; }
+.toggle button { flex: 0 0 auto; min-width: 180px; }
+.toggle button.active { outline: 2px solid var(--acc); }
+#aimInfo { font-size: 14px; opacity: 0.9; }
 
 #hud { display: flex; gap: 16px; font-size: 15px; margin: 6px 0 8px 0; }
 #hints { font-size: 14px; opacity: 0.9; }
