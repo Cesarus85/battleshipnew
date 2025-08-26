@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>AR Battleship – Step 1</title>
+  <title>AR Battleship – Step 2 (Picking)</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <!-- DOM Overlay: Muss im Session-Init als root angegeben werden -->
+  <!-- DOM Overlay -->
   <div id="overlay">
     <div id="ui">
       <h1>AR Battleship</h1>
-      <p id="status">Tippe „AR starten“ und richte das Reticle auf eine Fläche.</p>
+      <p id="status">Tippe „AR starten“, richte den Kopf auf eine Fläche, platziere das Brett – ziele dann mit der Kopfmitte auf eine Zelle.</p>
 
       <div class="buttons">
         <button id="btnStart">AR starten</button>
@@ -19,14 +19,18 @@
         <button id="btnReset" disabled>Zurücksetzen</button>
       </div>
 
+      <div id="hud">
+        <div><strong>Hover:</strong> <span id="hoverCell">–</span></div>
+        <div><strong>Auswahl:</strong> <span id="lastPick">–</span></div>
+      </div>
+
       <div id="hints">
-        <p>• Bewege dich, bis das <strong>Reticle</strong> stabil erscheint.</p>
-        <p>• „Hier platzieren“ setzt das 10×10-Brett (~50 cm) auf den Tisch.</p>
+        <p>• Zielen per <strong>Kopfblick</strong> (Bildmitte) – Trigger/Tippen zum Auswählen.</p>
+        <p>• Dies ist ein Dev-Schritt: wir markieren nur Zellen (noch keine Regeln/KI).</p>
       </div>
     </div>
   </div>
 
-  <!-- Canvas für Three.js -->
   <canvas id="xr-canvas"></canvas>
 
   <script type="module" src="./main.js"></script>
