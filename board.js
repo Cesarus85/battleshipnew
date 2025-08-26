@@ -1,10 +1,20 @@
+// Board: Geometrie, Ghost, Flotte, Trefferlogik, Siegprüfung
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 
 export class Board {
-  constructor(sizeMeters = 0.50, cells = 10) {
+  /**
+   * @param {number} sizeMeters
+   * @param {number} cells
+   * @param {{baseColor?:number, shipColor?:number, showShips?:boolean}} opts
+   */
+  constructor(sizeMeters = 0.50, cells = 10, opts = {}) {
     this.size = sizeMeters;
     this.cells = cells;
     this.cellSize = this.size / this.cells;
+
+    this.baseColor = opts.baseColor ?? 0x0d1b2a;
+    this.shipColor = opts.shipColor ?? 0x5dade2;
+    this.showShips = opts.showShips ?? true;
 
     this.group = new THREE.Group();
     this.group.matrixAutoUpdate = false;
@@ -16,9 +26,15 @@ export class Board {
     this.matrix = new THREE.Matrix4();
     this.inverseMatrix = new THREE.Matrix4();
 
-    // Belegung: 0=leer, 1=Schiff
-    this.grid = Array.from({ length: this.cells }, () => Array(this.cells).fill(0));
-    this.ships = []; // {row,col,length,orientation,mesh}
+    // Belegung & Schüsse
+    this.grid = Array.from({ length: this.cells }, () => Array(this.cells).fill(0));   // 1=Schiff
+    this.shots = Array.from({ length: this.cells }, () => Array(this.cells).fill(0));  // 1=bereits beschossen
+    this.hits  = Array.from({ length: this.cells }, () => Array(this.cells).fill(0));  // 1=Treffer
+
+    this.totalShipCells = 0;
+    this.hitCount = 0;
+
+    this.ships = []; // {row,col,length,orientation,mesh,hits}
 
     // Marker (Treffer/Miss)
     this.markers = new Map();
@@ -31,7 +47,7 @@ export class Board {
     const baseGeo = new THREE.PlaneGeometry(this.size, this.size);
     baseGeo.rotateX(-Math.PI / 2);
     const baseMat = new THREE.MeshStandardMaterial({
-      color: 0x0d1b2a, metalness: 0.0, roughness: 1.0,
+      color: this.baseColor, metalness: 0.0, roughness: 1.0,
       transparent: true, opacity: 0.7,
       depthWrite: false, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
     });
@@ -122,13 +138,8 @@ export class Board {
       -half + (row + 0.5) * this.cellSize
     );
   }
-  cellCenterWorld(row, col) {
-    return this.cellCenterLocal(row, col).applyMatrix4(this.group.matrixWorld);
-  }
-  cellLabel(row, col) {
-    const letter = String.fromCharCode(65 + col);
-    return `${letter}-${row + 1}`;
-  }
+  cellCenterWorld(row, col) { return this.cellCenterLocal(row, col).applyMatrix4(this.group.matrixWorld); }
+  cellLabel(row, col) { return `${String.fromCharCode(65 + col)}-${row + 1}`; }
 
   /* ---------- Ghost-Vorschau ---------- */
   showGhost(row, col, length, orientation, valid) {
@@ -138,33 +149,21 @@ export class Board {
     if (!this.ghost) {
       const geo = new THREE.PlaneGeometry(1, 1);
       geo.rotateX(-Math.PI / 2);
-      const mat = new THREE.MeshBasicMaterial({
-        color: valid ? 0x19b26b : 0xff4d4f,
-        transparent: true,
-        opacity: 0.35,
-        depthTest: false,
-        depthWrite: false
-      });
+      const mat = new THREE.MeshBasicMaterial({ color: valid ? 0x19b26b : 0xff4d4f, transparent: true, opacity: 0.35, depthTest: false, depthWrite: false });
       this.ghost = new THREE.Mesh(geo, mat);
       this.ghost.renderOrder = 2.5;
       this.group.add(this.ghost);
     }
-    // Größe
-    this.ghost.scale.set(w, 1, h); // Y-Skala egal (liegt im XZ)
-    // Position (Mitte des belegten Streifens)
+    this.ghost.scale.set(w, 1, h);
     const base = this.cellCenterLocal(row, col);
     const dx = orientation === "H" ? (length - 1) * 0.5 * this.cellSize : 0;
     const dz = orientation === "V" ? (length - 1) * 0.5 * this.cellSize : 0;
     this.ghost.position.set(base.x + dx, 0.002, base.z + dz);
-    // Farbe je Validität
     this.ghost.material.color.set(valid ? 0x19b26b : 0xff4d4f);
     this.ghost.visible = true;
     this.group.updateMatrixWorld(true);
   }
-
-  clearGhost() {
-    if (this.ghost) this.ghost.visible = false;
-  }
+  clearGhost() { if (this.ghost) this.ghost.visible = false; }
 
   /* ---------- Platzierung & Validierung ---------- */
   canPlaceShip(row, col, length, orientation) {
@@ -181,32 +180,29 @@ export class Board {
   placeShip(row, col, length, orientation) {
     if (!this.canPlaceShip(row, col, length, orientation)) return null;
 
-    // Belegung markieren
-    if (orientation === "H") {
-      for (let c = col; c < col + length; c++) this.grid[row][c] = 1;
-    } else {
-      for (let r = row; r < row + length; r++) this.grid[r][col] = 1;
-    }
+    if (orientation === "H") for (let c = col; c < col + length; c++) this.grid[row][c] = 1;
+    else for (let r = row; r < row + length; r++) this.grid[r][col] = 1;
 
-    // Visuelle Repräsentation: ein Streifen (ein Mesh)
+    this.totalShipCells += length;
+
     const w = orientation === "H" ? length * this.cellSize : this.cellSize;
     const h = orientation === "H" ? this.cellSize : length * this.cellSize;
+
     const geo = new THREE.PlaneGeometry(w, h);
     geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0x5dade2, transparent: true, opacity: 0.85,
-      depthTest: true, depthWrite: false
-    });
+    const mat = new THREE.MeshBasicMaterial({ color: this.shipColor, transparent: true, opacity: 0.85, depthTest: true, depthWrite: false });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder = 2; // über Grid
+    mesh.renderOrder = 2;
 
     const base = this.cellCenterLocal(row, col);
     const dx = orientation === "H" ? (length - 1) * 0.5 * this.cellSize : 0;
     const dz = orientation === "V" ? (length - 1) * 0.5 * this.cellSize : 0;
     mesh.position.set(base.x + dx, 0.0015, base.z + dz);
 
+    mesh.visible = this.showShips; // Gegner-Schiffe verstecken
+
     this.group.add(mesh);
-    const ship = { row, col, length, orientation, mesh };
+    const ship = { row, col, length, orientation, mesh, hits: 0 };
     this.ships.push(ship);
     this.group.updateMatrixWorld(true);
     return ship;
@@ -216,26 +212,22 @@ export class Board {
     const last = this.ships.pop();
     if (!last) return null;
     const { row, col, length, orientation, mesh } = last;
-    // Belegung zurücksetzen
-    if (orientation === "H") {
-      for (let c = col; c < col + length; c++) this.grid[row][c] = 0;
-    } else {
-      for (let r = row; r < row + length; r++) this.grid[r][col] = 0;
-    }
-    // Mesh löschen
+
+    if (orientation === "H") for (let c = col; c < col + length; c++) this.grid[row][c] = 0;
+    else for (let r = row; r < row + length; r++) this.grid[r][col] = 0;
+
+    this.totalShipCells -= length;
+
     this.group.remove(mesh);
     mesh.geometry?.dispose();
     mesh.material?.dispose?.();
     return last;
   }
 
-  resetFleet() {
-    // alle Schiffe entfernen
-    while (this.ships.length) this.undoLastShip();
-  }
+  resetFleet() { while (this.ships.length) this.undoLastShip(); }
 
-  /* ---------- Treffer/Miss Marker (wie zuvor) ---------- */
-  markCell(row, col, color = 0xffffff, opacity = 0.9) {
+  /* ---------- Treffer/Miss Marker ---------- */
+  markCell(row, col, color = 0xffffff, opacity = 0.9, order = 3) {
     const key = `${row},${col}`;
     if (this.markers.has(key)) return;
 
@@ -249,7 +241,7 @@ export class Board {
     mesh.position.copy(local);
     mesh.position.y += 0.002;
 
-    mesh.renderOrder = 3; // über Schiffen
+    mesh.renderOrder = order;
     this.group.add(mesh);
     this.markers.set(key, mesh);
     this.group.updateMatrixWorld(true);
@@ -258,5 +250,41 @@ export class Board {
   clearMarkers() {
     this.markers.forEach(m => { this.group.remove(m); m.geometry?.dispose(); m.material?.dispose?.(); });
     this.markers.clear();
+  }
+
+  /* ---------- Schussannahme & Sieg ---------- */
+  getShipAt(row, col) {
+    for (const s of this.ships) {
+      if (s.orientation === "H") {
+        if (row === s.row && col >= s.col && col < s.col + s.length) return s;
+      } else {
+        if (col === s.col && row >= s.row && row < s.row + s.length) return s;
+      }
+    }
+    return null;
+  }
+
+  receiveShot(row, col) {
+    if (this.shots[row][col] === 1) return { result: "repeat" };
+    this.shots[row][col] = 1;
+
+    if (this.grid[row][col] === 1) {
+      this.hits[row][col] = 1;
+      this.hitCount++;
+
+      const ship = this.getShipAt(row, col);
+      if (ship) {
+        ship.hits++;
+        const sunk = ship.hits >= ship.length;
+        return { result: sunk ? "sunk" : "hit", ship };
+      }
+      return { result: "hit" };
+    } else {
+      return { result: "miss" };
+    }
+  }
+
+  allShipsSunk() {
+    return this.hitCount >= this.totalShipCells && this.totalShipCells > 0;
   }
 }
