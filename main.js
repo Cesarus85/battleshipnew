@@ -1,4 +1,4 @@
-// AR + Diagnose-Overlay + Safe-Mode-Start
+// AR + Diagnose-Overlay + Safe-Mode + Zielmodus + Trigger-Placement
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { Board } from "./board.js";
 import { Picker } from "./picking.js";
@@ -32,6 +32,9 @@ let picker = null;
 
 // Zielmodus: "gaze" | "controller"
 let aimMode = "gaze";
+
+// Game-Phase: "placement" -> Trigger platziert Brett; "play" -> Trigger markiert Zellen
+let phase = "placement";
 
 initGL();
 wireUI();
@@ -74,7 +77,7 @@ function onResize() {
 function wireUI() {
   btnStart.addEventListener("click", () => startAR("regular"));
   btnStartSafe.addEventListener("click", () => startAR("safe"));
-  btnPlace.addEventListener("click", placeBoard);
+  btnPlace.addEventListener("click", placeBoard);           // Fallback (optional)
   btnReset.addEventListener("click", resetBoard);
 
   btnAimGaze.addEventListener("click", () => setAimMode("gaze"));
@@ -157,6 +160,7 @@ async function startAR(mode = "regular") {
     renderer.xr.setReferenceSpaceType("local");
     await renderer.xr.setSession(xrSession);
 
+    // Events
     xrSession.addEventListener("end", onSessionEnd);
     xrSession.addEventListener("select", onSelect);
     xrSession.addEventListener("inputsourceschange", onInputSourcesChange);
@@ -165,7 +169,7 @@ async function startAR(mode = "regular") {
     localRefSpace = await xrSession.requestReferenceSpace("local");
     viewerSpace = await xrSession.requestReferenceSpace("viewer");
 
-    // Hit-Test versuchen (falls Feature aktiv)
+    // Hit-Test (falls verfügbar)
     try {
       hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
       statusEl.textContent += " | hit-test aktiv.";
@@ -175,9 +179,14 @@ async function startAR(mode = "regular") {
     }
 
     const hasDomOverlay = !!xrSession.domOverlayState;
-    statusEl.textContent += hasDomOverlay ? " | DOM-Overlay aktiv." : " | DOM-Overlay nicht verfügbar.";
+    statusEl.textContent =
+      (hasDomOverlay ? "DOM-Overlay aktiv. " : "DOM-Overlay nicht verfügbar. ") +
+      "Richte die Reticle auf die Tischfläche. " +
+      "➡ Drücke **Trigger/Pinch zum Platzieren**.";
 
-    btnPlace.disabled = true;
+    // Startzustand
+    phase = "placement";
+    btnPlace.disabled = true;      // Fallback-Button bleibt deaktiviert
     btnReset.disabled = true;
     btnStart.disabled = true;
     btnStartSafe.disabled = true;
@@ -206,6 +215,7 @@ function onSessionEnd() {
   btnReset.disabled = !!board;
   statusEl.textContent = "Session beendet.";
   aimInfoEl.textContent = "";
+  phase = "placement";
 }
 
 function onInputSourcesChange() {
@@ -224,7 +234,7 @@ function onXRFrame(time, frame) {
   if (!frame) return;
 
   // Platzierungs-Hit-Test (falls verfügbar)
-  if (!board) {
+  if (phase === "placement") {
     const results = hitTestSource ? frame.getHitTestResults(hitTestSource) : [];
     if (results.length > 0) {
       const pose = results[0].getPose(localRefSpace);
@@ -233,7 +243,7 @@ function onXRFrame(time, frame) {
         const m = new THREE.Matrix4().fromArray(lastHitPose.matrix ?? matrixFromTransform(lastHitPose));
         reticle.visible = true;
         reticle.matrix.copy(m);
-        btnPlace.disabled = false;
+        btnPlace.disabled = false; // Fallback wäre möglich
       }
     } else {
       reticle.visible = false;
@@ -277,7 +287,9 @@ function placeBoard() {
   reticle.visible = false;
   btnPlace.disabled = true;
   btnReset.disabled = false;
-  statusEl.textContent = "Brett gesetzt. Zielen: Kopf oder Hand/Controller. Trigger/Pinch zum Markieren.";
+
+  phase = "play";
+  statusEl.textContent = "Brett gesetzt. Zielen: Kopf oder Hand/Controller. Trigger/Pinch markiert Zellen.";
 }
 
 function resetBoard() {
@@ -288,12 +300,23 @@ function resetBoard() {
     board = null;
     hoverCellEl.textContent = "–";
     lastPickEl.textContent = "–";
-    statusEl.textContent = "Brett entfernt. Bewege dich, bis das Reticle wieder erscheint.";
+    statusEl.textContent = "Brett entfernt. Richte Reticle wieder auf die Fläche. Trigger zum Platzieren.";
     btnReset.disabled = true;
+    reticle.visible = false;
+    phase = "placement";
   }
 }
 
 function onSelect() {
+  // Trigger/Pinch je nach Phase
+  if (phase === "placement") {
+    // Platziere an aktueller Reticle-Pose
+    if (!lastHitPose) return; // falls gerade kein Hit
+    placeBoard();
+    return;
+  }
+
+  // phase === "play"
   if (!board || !picker.hoverCell) return;
   const { row, col } = picker.hoverCell;
   board.markCell(row, col, 0xffffff, 0.55);
