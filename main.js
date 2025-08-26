@@ -280,35 +280,59 @@ function updateHover() {
   }
 }
 
-function onSelect() {
-  if (phase === "placement") { placeBoardsFromReticle(); return; }
+// Vorher: function onSelect() { ... }
+// Nachher:
+function onSelect(e) {
+  if (phase === "placement") { 
+    placeBoardsFromReticle(); 
+    return; 
+  }
 
   if (phase === "setup") {
-    const cell = picker.hoverCell; if (!cell) return;
+    // Zelle exakt aus dem Event-Ray berechnen; Fallback: Hover
+    const cellEvt = getCellFromSelectEvent(e, playerBoard) || picker.hoverCell;
+    if (!cellEvt) { 
+      statusEl.textContent = "Kein gültiges Feld getroffen – minimal nach unten neigen.";
+      return; 
+    }
+    const { row, col } = cellEvt;
+
     const L = fleet.currentLength(); if (!L) return;
-    const ok = playerBoard.canPlaceShip(cell.row, cell.col, L, orientation);
+    const ok = playerBoard.canPlaceShip(row, col, L, orientation);
     if (!ok) { statusEl.textContent = "Ungültige Position (außerhalb oder Kollision)."; return; }
-    playerBoard.placeShip(cell.row, cell.col, L, orientation);
-    fleet.advance(cell.row, cell.col, L, orientation);
-    lastPickEl.textContent = playerBoard.cellLabel(cell.row, cell.col);
+
+    playerBoard.placeShip(row, col, L, orientation);
+    fleet.advance(row, col, L, orientation);
+    lastPickEl.textContent = playerBoard.cellLabel(row, col);
     updateFleetUI();
     playerBoard.clearGhost();
 
-    // >>> Auto-Start: wenn Flotte vollständig, direkt ins Spiel wechseln
+    // Auto-Start bei kompletter Flotte (falls du das bereits drin hast, lassen)
     if (fleet.complete()) {
       statusEl.textContent = "Flotte komplett – Spiel startet …";
-      // kleiner Delay für klares visuelles Feedback
       setTimeout(() => { if (phase === "setup") startGame(); }, 250);
     }
     return;
   }
 
-  if (phase === "play" && turn === "player") {
-    if (!enemyBoard || !picker.hoverCell) return;
-    const { row, col } = picker.hoverCell;
+  if (phase === "play") {
+    if (turn !== "player") { 
+      statusEl.textContent = "KI ist dran …"; 
+      return; 
+    }
+    // Zelle aus Event-Ray; Fallback: Hover
+    const cellEvt = getCellFromSelectEvent(e, enemyBoard) || picker.hoverCell;
+    if (!cellEvt) { 
+      statusEl.textContent = "Kein gültiges Feld getroffen – minimal nach unten neigen.";
+      return; 
+    }
+    const { row, col } = cellEvt;
 
     const res = enemyBoard.receiveShot(row, col);
-    if (res.result === "repeat") { statusEl.textContent = "Schon beschossen. Wähle eine andere Zelle."; return; }
+    if (res.result === "repeat") { 
+      statusEl.textContent = "Schon beschossen. Wähle eine andere Zelle."; 
+      return; 
+    }
 
     if (res.result === "hit" || res.result === "sunk") {
       enemyBoard.markCell(row, col, 0x2ecc71, 0.9); // grün
@@ -522,5 +546,26 @@ function randomizeFleet(board, lengths) {
         }
       }
     }
+  }
+}
+// Nutzt den echten Ray des Devices, das den Event ausgelöst hat
+function getCellFromSelectEvent(e, board) {
+  try {
+    if (!e || !board || !localRefSpace) return null;
+    const frame = e.frame || renderer.xr.getFrame?.(); // falls verfügbar
+    if (!frame || !e.inputSource?.targetRaySpace) return null;
+
+    const pose = frame.getPose(e.inputSource.targetRaySpace, localRefSpace);
+    if (!pose) return null;
+
+    const m = new THREE.Matrix4().fromArray(pose.transform.matrix ?? matrixFromTransform(pose.transform));
+    const origin = new THREE.Vector3().setFromMatrixPosition(m);
+    const q = new THREE.Quaternion().setFromRotationMatrix(m);
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(q).normalize();
+
+    const hit = board.raycastCell(origin, dir);
+    return hit.hit ? { row: hit.row, col: hit.col } : null;
+  } catch {
+    return null;
   }
 }
