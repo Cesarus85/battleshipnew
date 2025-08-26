@@ -1,5 +1,4 @@
-// AR-Bootstrap + Brett-Platzierung + Zell-Picking + Zielmodus (Kopf/Hand/Controller)
-// robuste Session-Initialisierung mit Fallbacks & Fehlertext im UI
+// AR + Diagnose-Overlay + Safe-Mode-Start
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { Board } from "./board.js";
 import { Picker } from "./picking.js";
@@ -8,6 +7,7 @@ const canvas = document.getElementById("xr-canvas");
 const overlay = document.getElementById("overlay");
 const statusEl = document.getElementById("status");
 const btnStart = document.getElementById("btnStart");
+const btnStartSafe = document.getElementById("btnStartSafe");
 const btnPlace = document.getElementById("btnPlace");
 const btnReset = document.getElementById("btnReset");
 const hoverCellEl = document.getElementById("hoverCell");
@@ -15,6 +15,9 @@ const lastPickEl = document.getElementById("lastPick");
 const btnAimGaze = document.getElementById("btnAimGaze");
 const btnAimController = document.getElementById("btnAimController");
 const aimInfoEl = document.getElementById("aimInfo");
+const debugEl = document.getElementById("debug");
+const btnDiag = document.getElementById("btnDiag");
+const btnPerms = document.getElementById("btnPerms");
 
 let renderer, scene, camera;
 let xrSession = null;
@@ -32,6 +35,7 @@ let aimMode = "gaze";
 
 initGL();
 wireUI();
+diagnose().catch(()=>{});
 
 function initGL() {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -68,12 +72,18 @@ function onResize() {
 }
 
 function wireUI() {
-  btnStart.addEventListener("click", startAR);
+  btnStart.addEventListener("click", () => startAR("regular"));
+  btnStartSafe.addEventListener("click", () => startAR("safe"));
   btnPlace.addEventListener("click", placeBoard);
   btnReset.addEventListener("click", resetBoard);
 
   btnAimGaze.addEventListener("click", () => setAimMode("gaze"));
   btnAimController.addEventListener("click", () => setAimMode("controller"));
+
+  btnDiag.addEventListener("click", () => diagnose());
+  btnPerms.addEventListener("click", () => {
+    statusEl.textContent = "Quest-Browser → Seiteneinstellungen: 'Passthrough/AR' & 'Bewegung/Tracking' erlauben. Falls früher abgelehnt: Berechtigungen zurücksetzen und Seite neu laden.";
+  });
 }
 
 function setAimMode(mode) {
@@ -85,56 +95,64 @@ function setAimMode(mode) {
     : "Zielen über Hand/Controller-Ray.";
 }
 
-async function startAR() {
+async function diagnose() {
+  const lines = [];
+  const ua = navigator.userAgent || "n/a";
+  lines.push(`User-Agent: ${ua}`);
+  lines.push(`Secure Context: ${window.isSecureContext} (${location.protocol})`);
+  lines.push(`navigator.xr: ${!!navigator.xr}`);
+
+  try {
+    const arSup = await navigator.xr?.isSessionSupported?.("immersive-ar");
+    const vrSup = await navigator.xr?.isSessionSupported?.("immersive-vr");
+    lines.push(`isSessionSupported('immersive-ar'): ${arSup}`);
+    lines.push(`isSessionSupported('immersive-vr'): ${vrSup}`);
+  } catch (e) {
+    lines.push(`isSessionSupported() Fehler: ${e?.name} – ${e?.message}`);
+  }
+
+  debugEl.innerHTML = `<strong>Diagnose</strong>\n${lines.join("\n")}\n\nTipps:\n• HTTPS nötig (https:// oder https://localhost)\n• Quest-Browser aktuell?\n• Berechtigungen erteilt?`;
+}
+
+async function startAR(mode = "regular") {
   if (!navigator.xr) {
     statusEl.textContent = "WebXR nicht verfügbar. Bitte Meta/Quest-Browser verwenden.";
+    await diagnose();
     return;
   }
 
   try {
-    // 1) Preflight: unterstützt der Browser 'immersive-ar'?
     const supported = await navigator.xr.isSessionSupported?.("immersive-ar");
     if (supported === false) {
-      statusEl.textContent = "Dieser Browser unterstützt 'immersive-ar' nicht. Prüfe Browser-Update/Einstellungen.";
+      statusEl.textContent = "Dieser Browser unterstützt 'immersive-ar' nicht. Bitte Quest-Browser updaten.";
+      await diagnose();
       return;
     }
 
-    // 2) Kandidaten: erst mit DOM-Overlay, dann ohne (Fallback)
-    const candidates = [
-      {
-        note: "hit-test + dom-overlay",
-        init: {
-          requiredFeatures: ["hit-test"],                   // minimal strikt
-          optionalFeatures: ["dom-overlay", "anchors", "hand-tracking"],
-          domOverlay: { root: overlay }
-        }
-      },
-      {
-        note: "nur hit-test (ohne dom-overlay)",
-        init: {
-          requiredFeatures: ["hit-test"],
-          optionalFeatures: ["anchors", "hand-tracking"]
-          // kein domOverlay-Block -> Start sollte trotzdem klappen
-        }
-      }
-    ];
+    // Session-Configs
+    const configs = mode === "safe"
+      ? [
+          { note: "SAFE: minimale Features", init: { requiredFeatures: [], optionalFeatures: [] } },
+          { note: "SAFE: optional hit-test", init: { requiredFeatures: [], optionalFeatures: ["hit-test"] } },
+        ]
+      : [
+          { note: "regular: hit-test + optional dom-overlay", init: { requiredFeatures: ["hit-test"], optionalFeatures: ["dom-overlay", "anchors", "hand-tracking"], domOverlay: { root: overlay } } },
+          { note: "regular-fallback: hit-test (kein dom-overlay)", init: { requiredFeatures: ["hit-test"], optionalFeatures: ["anchors", "hand-tracking"] } },
+        ];
 
     let lastErr = null;
-    for (const cfg of candidates) {
+    for (const cfg of configs) {
       try {
         xrSession = await navigator.xr.requestSession("immersive-ar", cfg.init);
         console.log("[XR] gestartet mit:", cfg.note);
         statusEl.textContent = `AR gestartet (${cfg.note}).`;
         break;
       } catch (e) {
-        console.warn("[XR] Startversuch fehlgeschlagen:", cfg.note, e);
         lastErr = e;
+        console.warn("[XR] Startversuch fehlgeschlagen:", cfg.note, e);
       }
     }
-
-    if (!xrSession) {
-      throw lastErr || new Error("Unbekannter Fehler bei requestSession");
-    }
+    if (!xrSession) throw lastErr || new Error("requestSession fehlgeschlagen (unbekannt)");
 
     renderer.xr.setReferenceSpaceType("local");
     await renderer.xr.setSession(xrSession);
@@ -143,39 +161,34 @@ async function startAR() {
     xrSession.addEventListener("select", onSelect);
     xrSession.addEventListener("inputsourceschange", onInputSourcesChange);
 
-    // Reference Spaces & Hit-Test
+    // Reference Spaces
+    localRefSpace = await xrSession.requestReferenceSpace("local");
+    viewerSpace = await xrSession.requestReferenceSpace("viewer");
+
+    // Hit-Test versuchen (falls Feature aktiv)
     try {
-      localRefSpace = await xrSession.requestReferenceSpace("local");
-      viewerSpace = await xrSession.requestReferenceSpace("viewer");
       hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+      statusEl.textContent += " | hit-test aktiv.";
     } catch (e) {
-      console.error("Hit-Test/RefSpace Fehler:", e);
-      statusEl.textContent = `Hit-Test/RefSpace Fehler: ${e.name || "Error"} – ${e.message || e}`;
-      // Ohne Hit-Test können wir nicht platzieren → Session beenden
-      xrSession.end().catch(()=>{});
-      return;
+      hitTestSource = null;
+      statusEl.textContent += " | hit-test NICHT verfügbar.";
     }
 
-    // Overlay-Status anzeigen
     const hasDomOverlay = !!xrSession.domOverlayState;
-    if (hasDomOverlay) {
-      statusEl.textContent = "Bewege dich, bis das Reticle stabil erscheint. Dann „Hier platzieren“. (DOM-Overlay aktiv)";
-    } else {
-      statusEl.textContent = "Bewege dich, bis das Reticle stabil erscheint. Dann „Hier platzieren“. (DOM-Overlay NICHT verfügbar)";
-    }
+    statusEl.textContent += hasDomOverlay ? " | DOM-Overlay aktiv." : " | DOM-Overlay nicht verfügbar.";
 
     btnPlace.disabled = true;
     btnReset.disabled = true;
     btnStart.disabled = true;
+    btnStartSafe.disabled = true;
     setAimMode(aimMode);
 
     renderer.setAnimationLoop(onXRFrame);
-
   } catch (err) {
-    console.error("AR-Start fehlgeschlagen:", err);
-    statusEl.textContent =
-      `AR-Start fehlgeschlagen: ${err?.name || "Error"} – ${err?.message || err}.
-• Prüfe: HTTPS, Seitenberechtigungen (Passthrough), aktueller Quest-Browser.`;
+    const msg = `AR-Start fehlgeschlagen: ${err?.name || "Error"} – ${err?.message || err}`;
+    console.error(msg);
+    statusEl.textContent = `${msg}\n• HTTPS/Quest-Browser/Berechtigungen prüfen.`;
+    debugEl.textContent = `[Fehlerdetails]\n${msg}\n\nFalls weiterhin Probleme: Seite neu laden, Safe-Mode probieren, dann Diagnose posten.`;
   }
 }
 
@@ -188,6 +201,7 @@ function onSessionEnd() {
   lastHitPose = null;
   reticle.visible = false;
   btnStart.disabled = false;
+  btnStartSafe.disabled = false;
   btnPlace.disabled = true;
   btnReset.disabled = !!board;
   statusEl.textContent = "Session beendet.";
@@ -197,20 +211,19 @@ function onSessionEnd() {
 function onInputSourcesChange() {
   if (!xrSession) return;
   const src = pickActiveInputSource();
-  if (!src) {
-    if (aimMode === "controller") {
-      aimInfoEl.textContent = "Kein Hand/Controller-Ray. Bitte Controller anziehen oder Handtracking aktivieren.";
-    }
-    return;
-  }
-  aimInfoEl.textContent = aimMode === "controller"
-    ? `Ray aktiv: ${src.handedness === "right" ? "rechts" : src.handedness === "left" ? "links" : "neutral"}`
-    : "Zielen über Kopfblick.";
+  aimInfoEl.textContent = src
+    ? (aimMode === "controller"
+        ? `Ray aktiv: ${src.handedness || "neutral"}`
+        : "Zielen über Kopfblick.")
+    : (aimMode === "controller"
+        ? "Kein Hand/Controller-Ray. Bitte Controller anziehen oder Handtracking aktivieren."
+        : "Zielen über Kopfblick.");
 }
 
 function onXRFrame(time, frame) {
   if (!frame) return;
 
+  // Platzierungs-Hit-Test (falls verfügbar)
   if (!board) {
     const results = hitTestSource ? frame.getHitTestResults(hitTestSource) : [];
     if (results.length > 0) {
@@ -227,26 +240,20 @@ function onXRFrame(time, frame) {
       btnPlace.disabled = true;
     }
   } else {
+    // Zell-Hover je nach Zielmodus
     if (aimMode === "gaze") {
       const { changed, cell } = picker.updateFromCamera(camera);
       if (changed) hoverCellEl.textContent = cell ? board.cellLabel(cell.row, cell.col) : "–";
-      aimInfoEl.textContent = "Zielen über Kopfblick.";
     } else {
       const src = pickActiveInputSource();
       if (!src) {
-        aimInfoEl.textContent = "Kein Hand/Controller-Ray. Bitte Controller/Handtracking nutzen.";
-        // Hover ausblenden
-        // garantiert kein Hit:
-        picker.updateWithRay(new THREE.Vector3(1e6,1e6,1e6), new THREE.Vector3(0,-1,0));
+        picker.updateWithRay(new THREE.Vector3(1e6,1e6,1e6), new THREE.Vector3(0,-1,0)); // hide
       } else {
         const pose = frame.getPose(src.targetRaySpace, localRefSpace);
         if (pose) {
           const { origin, dir } = originDirFromXRPose(pose);
           const { changed, cell } = picker.updateWithRay(origin, dir);
           if (changed) hoverCellEl.textContent = cell ? board.cellLabel(cell.row, cell.col) : "–";
-          aimInfoEl.textContent = `Ray aktiv: ${src.handedness === "right" ? "rechts" : src.handedness === "left" ? "links" : "neutral"}`;
-        } else {
-          aimInfoEl.textContent = "Ray-Pose nicht verfügbar.";
         }
       }
     }
@@ -256,7 +263,10 @@ function onXRFrame(time, frame) {
 }
 
 function placeBoard() {
-  if (!lastHitPose || board) return;
+  if (!lastHitPose || board) {
+    if (!hitTestSource) statusEl.textContent = "Hit-Test nicht verfügbar. Safe-Mode gestartet? Dann ist Platzierung deaktiviert.";
+    return;
+  }
   const poseM = new THREE.Matrix4().fromArray(lastHitPose.matrix ?? matrixFromTransform(lastHitPose));
   board = new Board(0.50, 10);
   board.placeAtMatrix(poseM);
