@@ -81,16 +81,14 @@ export class Board {
     this.markers.clear();
   }
 
-  // Rechnet den Schnitt eines Weltstrahls mit der Brett-Ebene (lokal y=0) und liefert Zellindex
+  // Ray (Weltkoords) -> Zelle
   raycastCell(worldRayOrigin, worldRayDir) {
-    // In Board-Lokalkoordinaten umrechnen
+    // In Board-Lokalkoordinaten
     const o = worldRayOrigin.clone().applyMatrix4(this.inverseMatrix);
     const d = worldRayDir.clone().transformDirection(this.inverseMatrix);
 
-    // Schnitt mit Ebene y=0 -> o.y + t*d.y = 0
     const denom = d.y;
     if (Math.abs(denom) < 1e-6) return { hit: false };
-
     const t = -o.y / denom;
     if (t < 0) return { hit: false };
 
@@ -100,13 +98,11 @@ export class Board {
     const half = this.size / 2;
     if (x < -half || x > half || z < -half || z > half) return { hit: false };
 
-    const u = (x + half) / this.size;  // 0..1
-    const v = (z + half) / this.size;  // 0..1
+    const u = (x + half) / this.size;
+    const v = (z + half) / this.size;
 
     let col = Math.floor(u * this.cells);
     let row = Math.floor(v * this.cells);
-
-    // Kantenfall bei exakt 1.0 abfangen
     if (col === this.cells) col = this.cells - 1;
     if (row === this.cells) row = this.cells - 1;
 
@@ -117,21 +113,17 @@ export class Board {
     );
     const centerWorld = centerLocal.clone().applyMatrix4(this.group.matrixWorld);
 
-    return {
-      hit: true,
-      row, col,
-      centerWorld
-    };
+    return { hit: true, row, col, centerWorld };
   }
 
   cellLabel(row, col) {
     const letter = String.fromCharCode(65 + col); // A..J
-    return `${letter}-${row + 1}`;               // 1..10
+    return `${letter}-${row + 1}`;
   }
 
   markCell(row, col, color = 0xffffff, opacity = 0.6) {
     const key = `${row},${col}`;
-    if (this.markers.has(key)) return; // doppelt vermeiden
+    if (this.markers.has(key)) return;
 
     const r = (this.cellSize * 0.45);
     const geo = new THREE.CircleGeometry(r, 40);
