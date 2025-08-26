@@ -3,13 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>AR Battleship – Diagnose Build</title>
+  <title>AR Battleship – Step 3 (Schiffe-Editor)</title>
   <link rel="stylesheet" href="./styles.css" />
   <style>
-    /* Kleine Debug-Erweiterung */
-    #debug { font-size: 13px; white-space: pre-wrap; background: rgba(0,0,0,.35); padding: 10px; border-radius: 10px; }
-    #debug strong { color: #7bdcff; }
-    .btnrow { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+    #fleet { display:flex; gap:8px; flex-wrap:wrap; font-size:14px; opacity:.95; }
+    #fleet .pill { padding:4px 8px; border:1px solid rgba(255,255,255,.25); border-radius:999px; }
+    #setupBtns { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+    #setupBtns button { min-width:150px; }
+    #phase { font-weight:600; color:#7bdcff; }
   </style>
 </head>
 <body>
@@ -17,21 +18,31 @@
   <div id="overlay">
     <div id="ui">
       <h1>AR Battleship</h1>
-      <p id="status">
-  AR gestartet. Richte die Reticle auf die Tischfläche → <strong>Trigger/Pinch zum Platzieren</strong>.
-      </p>
+      <p id="status">AR starten → Reticle auf Tisch → <strong>Trigger/Pinch platziert</strong> das Brett.</p>
 
       <div class="buttons">
         <button id="btnStart">AR starten</button>
         <button id="btnStartSafe">AR (Safe-Mode)</button>
-        <button id="btnPlace" disabled style="display:none">Hier platzieren</button>
         <button id="btnReset" disabled>Zurücksetzen</button>
       </div>
 
-      <div id="aimToggle" class="toggle">
+      <div class="toggle">
         <button id="btnAimGaze" class="active">Zielen: Kopf</button>
         <button id="btnAimController">Zielen: Hand/Controller</button>
         <span id="aimInfo"></span>
+      </div>
+
+      <div id="setup" style="margin-top:6px;">
+        <div>Phase: <span id="phase">–</span></div>
+        <div id="fleet"></div>
+        <div id="setupBtns">
+          <button id="btnRotate">Drehen (H↔V)</button>
+          <button id="btnUndo" disabled>Letztes Schiff zurück</button>
+          <button id="btnStartGame" disabled>Spiel starten</button>
+        </div>
+        <div style="font-size:13px;opacity:.9">
+          Tipp: Im Setup rotiert auch <strong>Squeeze</strong> am Controller. Trigger setzt das Schiff.
+        </div>
       </div>
 
       <div id="hud">
@@ -44,15 +55,11 @@
         <button id="btnPerms">Seiten-Berechtigungen Tipps</button>
       </div>
       <div id="debug">Noch keine Diagnose.</div>
-
-      <div id="hints">
-        <p>• <strong>Regular</strong>: hit-test + (optional) dom-overlay. | <strong>Safe-Mode</strong>: minimale Features.</p>
-        <p>• Auswahl: Trigger/Pinch (<code>select</code>-Event).</p>
-      </div>
     </div>
   </div>
 
   <canvas id="xr-canvas"></canvas>
+
   <script type="module" src="./main.js"></script>
 </body>
 </html>
