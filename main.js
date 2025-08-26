@@ -1,5 +1,7 @@
-// Minimaler AR-Bootstrap mit Hit-Test-Reticle & Board-Platzierung
+// AR-Bootstrap + Brett-Platzierung + Zell-Picking (Schritt 2)
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
+import { Board } from "./board.js";
+import { Picker } from "./picking.js";
 
 const canvas = document.getElementById("xr-canvas");
 const overlay = document.getElementById("overlay");
@@ -7,6 +9,8 @@ const statusEl = document.getElementById("status");
 const btnStart = document.getElementById("btnStart");
 const btnPlace = document.getElementById("btnPlace");
 const btnReset = document.getElementById("btnReset");
+const hoverCellEl = document.getElementById("hoverCell");
+const lastPickEl = document.getElementById("lastPick");
 
 let renderer, scene, camera;
 let xrSession = null;
@@ -16,9 +20,8 @@ let hitTestSource = null;
 let reticle = null;
 let lastHitPose = null;
 
-let boardGroup = null; // wird nach Platzierung gesetzt
-const BOARD_SIZE_M = 0.50; // 50 cm
-const BOARD_CELLS = 10;
+let board = null;
+let picker = null;
 
 initGL();
 wireUI();
@@ -36,7 +39,7 @@ function initGL() {
   const ambient = new THREE.HemisphereLight(0xffffff, 0x222244, 0.8);
   scene.add(ambient);
 
-  // Reticle: dezenter Ring (erscheint auf erkannten Flächen)
+  // Reticle
   const ringGeo = new THREE.RingGeometry(0.07, 0.075, 48);
   ringGeo.rotateX(-Math.PI / 2);
   const ringMat = new THREE.MeshBasicMaterial({ color: 0x7bdcff, transparent: true, opacity: 0.9 });
@@ -44,6 +47,9 @@ function initGL() {
   reticle.matrixAutoUpdate = false;
   reticle.visible = false;
   scene.add(reticle);
+
+  // Picker
+  picker = new Picker(scene);
 
   window.addEventListener("resize", onResize);
 }
@@ -76,8 +82,8 @@ async function startAR() {
     await renderer.xr.setSession(xrSession);
 
     xrSession.addEventListener("end", onSessionEnd);
+    xrSession.addEventListener("select", onSelect); // Trigger zum Markieren
 
-    // Reference Spaces & Hit-Test
     localRefSpace = await xrSession.requestReferenceSpace("local");
     viewerSpace = await xrSession.requestReferenceSpace("viewer");
     hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
@@ -96,35 +102,41 @@ async function startAR() {
 
 function onSessionEnd() {
   renderer.setAnimationLoop(null);
+  xrSession?.removeEventListener("select", onSelect);
   xrSession = null;
   hitTestSource = null;
   lastHitPose = null;
   reticle.visible = false;
   btnStart.disabled = false;
   btnPlace.disabled = true;
-  btnReset.disabled = boardGroup ? false : true;
+  btnReset.disabled = !!board;
   statusEl.textContent = "Session beendet.";
 }
 
 function onXRFrame(time, frame) {
   if (!frame) return;
 
-  const refSpace = localRefSpace;
-  const results = hitTestSource ? frame.getHitTestResults(hitTestSource) : [];
-
-  if (results.length > 0 && !boardGroup) {
-    const pose = results[0].getPose(refSpace);
-    lastHitPose = pose && pose.transform;
-    if (lastHitPose) {
-      const m = new THREE.Matrix4().fromArray(pose.transform.matrix);
-      reticle.visible = true;
-      reticle.matrix.copy(m);
-      btnPlace.disabled = false;
-    }
-  } else {
-    if (!boardGroup) {
+  // Hit-Test solange kein Board gesetzt ist
+  if (!board) {
+    const results = hitTestSource ? frame.getHitTestResults(hitTestSource) : [];
+    if (results.length > 0) {
+      const pose = results[0].getPose(localRefSpace);
+      lastHitPose = pose && pose.transform;
+      if (lastHitPose) {
+        const m = new THREE.Matrix4().fromArray(lastHitPose.matrix ?? matrixFromTransform(lastHitPose));
+        reticle.visible = true;
+        reticle.matrix.copy(m);
+        btnPlace.disabled = false;
+      }
+    } else {
       reticle.visible = false;
       btnPlace.disabled = true;
+    }
+  } else {
+    // Zell-Hover aktualisieren (Kopfblick)
+    const { changed, cell } = picker.update(camera);
+    if (changed) {
+      hoverCellEl.textContent = cell ? board.cellLabel(cell.row, cell.col) : "–";
     }
   }
 
@@ -132,77 +144,43 @@ function onXRFrame(time, frame) {
 }
 
 function placeBoard() {
-  if (!lastHitPose || boardGroup) return;
+  if (!lastHitPose || board) return;
 
-  // Board-Gruppe erstellen (Grid + dünne Platte)
-  boardGroup = new THREE.Group();
-  const poseM = new THREE.Matrix4().fromArray(matrixFromTransform(lastHitPose));
-  boardGroup.matrix.copy(poseM);
-  boardGroup.matrixAutoUpdate = false;
+  const poseM = new THREE.Matrix4().fromArray(lastHitPose.matrix ?? matrixFromTransform(lastHitPose));
+  board = new Board(0.50, 10);
+  board.placeAtMatrix(poseM);
+  board.addToScene(scene);
 
-  // Dünne halbtransparente Base
-  const baseGeo = new THREE.PlaneGeometry(BOARD_SIZE_M, BOARD_SIZE_M);
-  baseGeo.rotateX(-Math.PI / 2);
-  const baseMat = new THREE.MeshStandardMaterial({
-    color: 0x0d1b2a, metalness: 0.0, roughness: 1.0, transparent: true, opacity: 0.7
-  });
-  const base = new THREE.Mesh(baseGeo, baseMat);
-  base.receiveShadow = false;
-  boardGroup.add(base);
+  picker.setBoard(board);
 
-  // Grid-Linien (10×10)
-  const lines = makeGridLines(BOARD_SIZE_M, BOARD_CELLS);
-  lines.position.y += 0.001; // Z-Fighting vermeiden
-  boardGroup.add(lines);
-
-  scene.add(boardGroup);
-
-  // UI & Reticle
   reticle.visible = false;
   btnPlace.disabled = true;
   btnReset.disabled = false;
-  statusEl.textContent = "Brett gesetzt. Nächster Schritt: Zell-Picking & Schiffe-Editor.";
+  statusEl.textContent = "Brett gesetzt. Zielen per Kopf; Trigger/Tippen markiert Zelle.";
 }
 
 function resetBoard() {
-  if (boardGroup) {
-    scene.remove(boardGroup);
-    boardGroup.traverse(o => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material) o.material.dispose?.();
-    });
-    boardGroup = null;
+  if (board) {
+    picker.setBoard(null);
+    board.removeFromScene(scene);
+    board.dispose();
+    board = null;
+    hoverCellEl.textContent = "–";
+    lastPickEl.textContent = "–";
     statusEl.textContent = "Brett entfernt. Bewege dich, bis das Reticle wieder erscheint.";
     btnReset.disabled = true;
   }
 }
 
-function makeGridLines(size, cells) {
-  const half = size / 2;
-  const step = size / cells;
-  const points = [];
-
-  // Senkrechte Linien
-  for (let i = 0; i <= cells; i++) {
-    const x = -half + i * step;
-    points.push(new THREE.Vector3(x, 0, -half));
-    points.push(new THREE.Vector3(x, 0,  half));
-  }
-  // Waagerechte Linien
-  for (let j = 0; j <= cells; j++) {
-    const z = -half + j * step;
-    points.push(new THREE.Vector3(-half, 0, z));
-    points.push(new THREE.Vector3( half, 0, z));
-  }
-
-  const geo = new THREE.BufferGeometry().setFromPoints(points);
-  const mat = new THREE.LineBasicMaterial({ color: 0x7bdcff, transparent: true, opacity: 0.9 });
-  const lines = new THREE.LineSegments(geo, mat);
-  lines.rotation.x = -Math.PI / 2; // liegt auf dem Boden
-  return lines;
+function onSelect() {
+  if (!board || !picker.hoverCell) return;
+  const { row, col } = picker.hoverCell;
+  board.markCell(row, col, 0xffffff, 0.55);
+  lastPickEl.textContent = board.cellLabel(row, col);
 }
 
+// Helper für ältere XRTransform-Objekte
 function matrixFromTransform(t) {
-  // t: XRRigidTransform (position, orientation, matrix)
-  return t.matrix ? t.matrix : new XRRigidTransform(t.position, t.orientation).matrix;
+  // Fallback falls t.matrix nicht direkt verfügbar ist
+  return (new XRRigidTransform(t.position, t.orientation)).matrix;
 }
