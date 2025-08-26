@@ -1,4 +1,5 @@
 // AR-Bootstrap + Brett-Platzierung + Zell-Picking + Zielmodus (Kopf/Hand/Controller)
+// robuste Session-Initialisierung mit Fallbacks & Fehlertext im UI
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { Board } from "./board.js";
 import { Picker } from "./picking.js";
@@ -86,16 +87,55 @@ function setAimMode(mode) {
 
 async function startAR() {
   if (!navigator.xr) {
-    statusEl.textContent = "WebXR nicht verfügbar. Bitte Quest-Browser nutzen.";
+    statusEl.textContent = "WebXR nicht verfügbar. Bitte Meta/Quest-Browser verwenden.";
     return;
   }
+
   try {
-    const sessionInit = {
-      requiredFeatures: ["hit-test", "dom-overlay"],
-      optionalFeatures: ["anchors", "hand-tracking"], // Hand-Tracking optional
-      domOverlay: { root: overlay }
-    };
-    xrSession = await navigator.xr.requestSession("immersive-ar", sessionInit);
+    // 1) Preflight: unterstützt der Browser 'immersive-ar'?
+    const supported = await navigator.xr.isSessionSupported?.("immersive-ar");
+    if (supported === false) {
+      statusEl.textContent = "Dieser Browser unterstützt 'immersive-ar' nicht. Prüfe Browser-Update/Einstellungen.";
+      return;
+    }
+
+    // 2) Kandidaten: erst mit DOM-Overlay, dann ohne (Fallback)
+    const candidates = [
+      {
+        note: "hit-test + dom-overlay",
+        init: {
+          requiredFeatures: ["hit-test"],                   // minimal strikt
+          optionalFeatures: ["dom-overlay", "anchors", "hand-tracking"],
+          domOverlay: { root: overlay }
+        }
+      },
+      {
+        note: "nur hit-test (ohne dom-overlay)",
+        init: {
+          requiredFeatures: ["hit-test"],
+          optionalFeatures: ["anchors", "hand-tracking"]
+          // kein domOverlay-Block -> Start sollte trotzdem klappen
+        }
+      }
+    ];
+
+    let lastErr = null;
+    for (const cfg of candidates) {
+      try {
+        xrSession = await navigator.xr.requestSession("immersive-ar", cfg.init);
+        console.log("[XR] gestartet mit:", cfg.note);
+        statusEl.textContent = `AR gestartet (${cfg.note}).`;
+        break;
+      } catch (e) {
+        console.warn("[XR] Startversuch fehlgeschlagen:", cfg.note, e);
+        lastErr = e;
+      }
+    }
+
+    if (!xrSession) {
+      throw lastErr || new Error("Unbekannter Fehler bei requestSession");
+    }
+
     renderer.xr.setReferenceSpaceType("local");
     await renderer.xr.setSession(xrSession);
 
@@ -103,21 +143,39 @@ async function startAR() {
     xrSession.addEventListener("select", onSelect);
     xrSession.addEventListener("inputsourceschange", onInputSourcesChange);
 
-    localRefSpace = await xrSession.requestReferenceSpace("local");
-    viewerSpace = await xrSession.requestReferenceSpace("viewer");
-    hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+    // Reference Spaces & Hit-Test
+    try {
+      localRefSpace = await xrSession.requestReferenceSpace("local");
+      viewerSpace = await xrSession.requestReferenceSpace("viewer");
+      hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+    } catch (e) {
+      console.error("Hit-Test/RefSpace Fehler:", e);
+      statusEl.textContent = `Hit-Test/RefSpace Fehler: ${e.name || "Error"} – ${e.message || e}`;
+      // Ohne Hit-Test können wir nicht platzieren → Session beenden
+      xrSession.end().catch(()=>{});
+      return;
+    }
 
-    statusEl.textContent = "Bewege dich, bis das Reticle stabil erscheint. Dann „Hier platzieren“.";
+    // Overlay-Status anzeigen
+    const hasDomOverlay = !!xrSession.domOverlayState;
+    if (hasDomOverlay) {
+      statusEl.textContent = "Bewege dich, bis das Reticle stabil erscheint. Dann „Hier platzieren“. (DOM-Overlay aktiv)";
+    } else {
+      statusEl.textContent = "Bewege dich, bis das Reticle stabil erscheint. Dann „Hier platzieren“. (DOM-Overlay NICHT verfügbar)";
+    }
+
     btnPlace.disabled = true;
     btnReset.disabled = true;
     btnStart.disabled = true;
-
-    setAimMode(aimMode); // UI-Text initialisieren
+    setAimMode(aimMode);
 
     renderer.setAnimationLoop(onXRFrame);
+
   } catch (err) {
-    console.error(err);
-    statusEl.textContent = "AR-Start fehlgeschlagen. HTTPS/Quest-Browser verwenden?";
+    console.error("AR-Start fehlgeschlagen:", err);
+    statusEl.textContent =
+      `AR-Start fehlgeschlagen: ${err?.name || "Error"} – ${err?.message || err}.
+• Prüfe: HTTPS, Seitenberechtigungen (Passthrough), aktueller Quest-Browser.`;
   }
 }
 
@@ -137,7 +195,6 @@ function onSessionEnd() {
 }
 
 function onInputSourcesChange() {
-  // Kurze Info aktualisieren (z. B. wenn Controller verbunden/gelöst werden)
   if (!xrSession) return;
   const src = pickActiveInputSource();
   if (!src) {
@@ -154,7 +211,6 @@ function onInputSourcesChange() {
 function onXRFrame(time, frame) {
   if (!frame) return;
 
-  // Hit-Test solange kein Board gesetzt ist
   if (!board) {
     const results = hitTestSource ? frame.getHitTestResults(hitTestSource) : [];
     if (results.length > 0) {
@@ -171,7 +227,6 @@ function onXRFrame(time, frame) {
       btnPlace.disabled = true;
     }
   } else {
-    // Zell-Hover je nach Zielmodus
     if (aimMode === "gaze") {
       const { changed, cell } = picker.updateFromCamera(camera);
       if (changed) hoverCellEl.textContent = cell ? board.cellLabel(cell.row, cell.col) : "–";
@@ -181,7 +236,8 @@ function onXRFrame(time, frame) {
       if (!src) {
         aimInfoEl.textContent = "Kein Hand/Controller-Ray. Bitte Controller/Handtracking nutzen.";
         // Hover ausblenden
-        picker.updateWithRay(new THREE.Vector3(1e6,1e6,1e6), new THREE.Vector3(0,-1,0)); // garantiert kein Hit
+        // garantiert kein Hit:
+        picker.updateWithRay(new THREE.Vector3(1e6,1e6,1e6), new THREE.Vector3(0,-1,0));
       } else {
         const pose = frame.getPose(src.targetRaySpace, localRefSpace);
         if (pose) {
@@ -227,7 +283,7 @@ function resetBoard() {
   }
 }
 
-function onSelect(event) {
+function onSelect() {
   if (!board || !picker.hoverCell) return;
   const { row, col } = picker.hoverCell;
   board.markCell(row, col, 0xffffff, 0.55);
@@ -240,7 +296,6 @@ function pickActiveInputSource() {
   if (!xrSession) return null;
   let right = null, left = null, any = null;
   for (const src of xrSession.inputSources) {
-    // Controller UND Hände liefern "tracked-pointer"
     if (src.targetRayMode === "tracked-pointer") {
       any = any || src;
       if (src.handedness === "right") right = src;
@@ -258,7 +313,6 @@ function originDirFromXRPose(pose) {
   return { origin, dir };
 }
 
-// Fallback falls transform.matrix nicht direkt verfügbar ist
 function matrixFromTransform(t) {
   return (new XRRigidTransform(t.position, t.orientation)).matrix;
 }
