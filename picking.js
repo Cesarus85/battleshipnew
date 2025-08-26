@@ -1,3 +1,4 @@
+// Zell-Hover via Ray (generisch), Hover-Mesh als Kind des Boards (lokal)
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 
 export class Picker {
