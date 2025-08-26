@@ -3,8 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>AR Battleship – Step 2 (Picking + Aim Toggle)</title>
+  <title>AR Battleship – Diagnose Build</title>
   <link rel="stylesheet" href="./styles.css" />
+  <style>
+    /* Kleine Debug-Erweiterung */
+    #debug { font-size: 13px; white-space: pre-wrap; background: rgba(0,0,0,.35); padding: 10px; border-radius: 10px; }
+    #debug strong { color: #7bdcff; }
+    .btnrow { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+  </style>
 </head>
 <body>
   <!-- DOM Overlay -->
@@ -12,11 +18,12 @@
     <div id="ui">
       <h1>AR Battleship</h1>
       <p id="status">
-        AR starten → Reticle auf Tisch → Brett platzieren. Zielmodus umschalten mit den Buttons.
+        Starte AR regulär oder im Safe-Mode. Bei Problemen: „Diagnose aktualisieren“ drücken.
       </p>
 
       <div class="buttons">
         <button id="btnStart">AR starten</button>
+        <button id="btnStartSafe">AR (Safe-Mode)</button>
         <button id="btnPlace" disabled>Hier platzieren</button>
         <button id="btnReset" disabled>Zurücksetzen</button>
       </div>
@@ -32,9 +39,15 @@
         <div><strong>Auswahl:</strong> <span id="lastPick">–</span></div>
       </div>
 
+      <div class="btnrow">
+        <button id="btnDiag">Diagnose aktualisieren</button>
+        <button id="btnPerms">Seiten-Berechtigungen Tipps</button>
+      </div>
+      <div id="debug">Noch keine Diagnose.</div>
+
       <div id="hints">
-        <p>• <strong>Kopf</strong>: Blick in Bildmitte; <strong>Hand/Controller</strong>: Ray vom aktiven Gerät.</p>
-        <p>• Auswählen per Trigger/Pinch (WebXR <code>select</code> Event).</p>
+        <p>• <strong>Regular</strong>: hit-test + (optional) dom-overlay. | <strong>Safe-Mode</strong>: minimale Features.</p>
+        <p>• Auswahl: Trigger/Pinch (<code>select</code>-Event).</p>
       </div>
     </div>
   </div>
