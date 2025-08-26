@@ -2,36 +2,20 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; }
 #xr-canvas { width: 100%; height: 100%; display: block; }
-
-#overlay {
-  position: fixed; inset: 0; pointer-events: none;
-  display: flex; align-items: flex-start; justify-content: center;
-  padding: env(safe-area-inset-top) 16px 16px 16px;
-}
-#ui {
-  pointer-events: auto;
-  width: min(560px, 92vw);
-  background: var(--bg); color: var(--fg);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 16px; padding: 16px;
-}
+#overlay { position: fixed; inset: 0; pointer-events: none; display: flex; align-items: flex-start; justify-content: center; padding: env(safe-area-inset-top) 16px 16px 16px; }
+#ui { pointer-events: auto; width: min(620px, 92vw); background: var(--bg); color: var(--fg); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.2); border-radius: 16px; padding: 16px; }
 h1 { font-size: 20px; margin: 0 0 8px; }
 #status { margin: 0 0 12px; }
 .buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-button {
-  flex: 1 1 auto; min-width: 140px; padding: 12px 14px; font-size: 16px;
-  border-radius: 12px; border: 0; background: #1f87ff; color: #fff; cursor: pointer;
-}
+button { flex: 1 1 auto; min-width: 140px; padding: 12px 14px; font-size: 16px; border-radius: 12px; border: 0; background: #1f87ff; color: #fff; cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: default; }
-#btnPlace { background: #19b26b; }
+#btnStartSafe { background: #6272ff; }
 #btnReset { background: #444; }
-
 .toggle { display: flex; gap: 8px; align-items: center; margin: 6px 0 10px; flex-wrap: wrap; }
 .toggle button { flex: 0 0 auto; min-width: 180px; }
 .toggle button.active { outline: 2px solid var(--acc); }
 #aimInfo { font-size: 14px; opacity: 0.9; }
-
 #hud { display: flex; gap: 16px; font-size: 15px; margin: 6px 0 8px 0; }
-#hints { font-size: 14px; opacity: 0.9; }
+#debug { font-size: 13px; white-space: pre-wrap; background: rgba(0,0,0,.35); padding: 10px; border-radius: 10px; }
+.btnrow { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
 strong { color: var(--acc); }
