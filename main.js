@@ -1,4 +1,4 @@
-// AR + Diagnose + Zielmodus + Trigger-Placement + Setup + KI-Runden (Random)
+// AR + Diagnose + Zielmodus + Trigger-Placement + Setup + KI-Runden (Random) + AUTO-START
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { Board } from "./board.js";
 import { Picker } from "./picking.js";
@@ -24,6 +24,7 @@ const phaseEl = document.getElementById("phase");
 const fleetEl = document.getElementById("fleet");
 const btnRotate = document.getElementById("btnRotate");
 const btnUndo = document.getElementById("btnUndo");
+// Hinweis: Button kann fehlen, daher defensiv:
 const btnStartGame = document.getElementById("btnStartGame");
 const turnEl = document.getElementById("turn");
 
@@ -109,7 +110,8 @@ function wireUI() {
 
   btnRotate.addEventListener("click", rotateShip);
   btnUndo.addEventListener("click", undoShip);
-  btnStartGame.addEventListener("click", startGame);
+  // Button existiert evtl. nicht mehr – nur verbinden, wenn vorhanden:
+  if (btnStartGame) btnStartGame.addEventListener("click", startGame);
 }
 
 function setAimMode(mode) {
@@ -249,12 +251,10 @@ function onXRFrame(time, frame) {
       playerBoard.clearGhost();
     }
   } else if (phase === "play") {
-    // Hover nur auf dem gegnerischen Brett, wenn der Spieler dran ist
     if (turn === "player") {
       picker.setBoard(enemyBoard);
       updateHover();
     } else {
-      // KI dran: kein Hover
       picker.setBoard(null);
     }
   }
@@ -293,9 +293,12 @@ function onSelect() {
     lastPickEl.textContent = playerBoard.cellLabel(cell.row, cell.col);
     updateFleetUI();
     playerBoard.clearGhost();
+
+    // >>> Auto-Start: wenn Flotte vollständig, direkt ins Spiel wechseln
     if (fleet.complete()) {
-      btnStartGame.disabled = false;
-      statusEl.textContent = "Flotte komplett. „Spiel starten“ aktiv.";
+      statusEl.textContent = "Flotte komplett – Spiel startet …";
+      // kleiner Delay für klares visuelles Feedback
+      setTimeout(() => { if (phase === "setup") startGame(); }, 250);
     }
     return;
   }
@@ -304,7 +307,6 @@ function onSelect() {
     if (!enemyBoard || !picker.hoverCell) return;
     const { row, col } = picker.hoverCell;
 
-    // Spieler schießt auf Gegner
     const res = enemyBoard.receiveShot(row, col);
     if (res.result === "repeat") { statusEl.textContent = "Schon beschossen. Wähle eine andere Zelle."; return; }
 
@@ -317,7 +319,6 @@ function onSelect() {
 
     if (enemyBoard.allShipsSunk()) return gameOver("player");
 
-    // Zug an KI übergeben
     setTurn("ai");
     setTimeout(aiTurn, 650);
   }
@@ -331,16 +332,14 @@ function onSqueeze() {
 function placeBoardsFromReticle() {
   if (!lastHitPose || playerBoard || enemyBoard) return;
 
-  // Basis-Matrix (Spieler-Brett)
   const baseM = new THREE.Matrix4().fromArray(lastHitPose.matrix ?? matrixFromTransform(lastHitPose));
 
   playerBoard = new Board(0.50, 10, { baseColor: 0x0d1b2a, shipColor: 0x5dade2, showShips: true });
   playerBoard.placeAtMatrix(baseM);
   playerBoard.addToScene(scene);
 
-  // Gegner-Brett: rechts daneben (lokal +X)
   const gap = 0.12;
-  const dx = playerBoard.size + gap; // 0.62 m
+  const dx = playerBoard.size + gap;
   const enemyM = offsetLocalXZ(baseM, dx, 0);
   enemyBoard = new Board(0.50, 10, { baseColor: 0x1b1430, shipColor: 0xaa66ff, showShips: false });
   enemyBoard.placeAtMatrix(enemyM);
@@ -351,11 +350,10 @@ function placeBoardsFromReticle() {
   reticle.visible = false;
   btnReset.disabled = false;
 
-  // Setup starten
   fleet = new FleetManager([5,4,3,3,2]);
   setPhase("setup");
   updateFleetUI();
-  statusEl.textContent = "Schiffe setzen (linkes Brett): Ziel auf Zelle → Trigger, Squeeze rotiert (H/V).";
+  statusEl.textContent = "Schiffe setzen (linkes Brett): Ziel → Trigger, Squeeze rotiert (H/V).";
 }
 
 function rotateShip() {
@@ -368,12 +366,11 @@ function undoShip() {
   const last = playerBoard.undoLastShip();
   if (!last) return;
   fleet.undo();
-  btnStartGame.disabled = true;
   updateFleetUI();
 }
 
 function startGame() {
-  if (!fleet || !fleet.complete()) return;
+  if (!fleet || !playerBoard || !enemyBoard) return;
   // KI-Flotte zufällig setzen
   randomizeFleet(enemyBoard, [5,4,3,3,2]);
 
@@ -393,32 +390,26 @@ function setTurn(t) {
 function aiTurn() {
   if (phase !== "play" || !playerBoard) return;
 
-  // Kandidaten initialisieren, falls leer
   if (!aiCandidates) aiCandidates = allCells(playerBoard.cells);
-
-  // Filter: noch nicht beschossen
   aiCandidates = aiCandidates.filter(([r, c]) => playerBoard.shots[r][c] === 0);
-  if (aiCandidates.length === 0) return; // sollte nicht passieren
+  if (aiCandidates.length === 0) return;
 
-  // Zufällige Zelle wählen
   const idx = Math.floor(Math.random() * aiCandidates.length);
   const [row, col] = aiCandidates[idx];
 
   const res = playerBoard.receiveShot(row, col);
   if (res.result === "hit" || res.result === "sunk") {
     playerBoard.markCell(row, col, 0xe74c3c, 0.95); // rot
-    statusEl.textContent = `KI trifft auf deinem Brett: ${playerBoard.cellLabel(row, col)}!`;
+    statusEl.textContent = `KI trifft: ${playerBoard.cellLabel(row, col)}!`;
   } else if (res.result === "miss") {
     playerBoard.markCell(row, col, 0x95a5a6, 0.9); // grau
     statusEl.textContent = `KI verfehlt: ${playerBoard.cellLabel(row, col)}.`;
   } else {
-    // repeat – wähle sofort neu
     return setTimeout(aiTurn, 0);
   }
 
   if (playerBoard.allShipsSunk()) return gameOver("ai");
 
-  // Zug zurück an Spieler
   setTurn("player");
   statusEl.textContent += " Dein Zug.";
 }
@@ -451,7 +442,7 @@ function resetAll() {
 /* ---------- UI Helfer ---------- */
 function updateFleetUI() {
   phaseEl.textContent = phase + (phase === "setup" ? ` (Ori: ${orientation})` : "");
-  if (!fleet) { fleetEl.innerHTML = ""; btnUndo.disabled = true; btnStartGame.disabled = true; return; }
+  if (!fleet) { fleetEl.innerHTML = ""; btnUndo.disabled = true; if (btnStartGame) btnStartGame.disabled = true; return; }
   const remain = fleet.summary();
   const orderStr = fleet.order.length ? `Als Nächstes: ${fleet.order[0]}er` : "–";
   const parts = [];
@@ -461,7 +452,8 @@ function updateFleetUI() {
   }
   fleetEl.innerHTML = `${parts.join(" ")} &nbsp; | &nbsp; <strong>${orderStr}</strong>`;
   btnUndo.disabled = fleet.placed.length === 0;
-  btnStartGame.disabled = !fleet.complete();
+  // Button existiert evtl. nicht – und ist sowieso nicht mehr im Flow:
+  if (btnStartGame) btnStartGame.disabled = !fleet.complete();
 }
 
 /* ---------- Mathe & XR Helpers ---------- */
@@ -491,15 +483,12 @@ function matrixFromTransform(t) {
 }
 
 function offsetLocalXZ(baseMatrix, dx, dz) {
-  // Verschiebe die Pose entlang ihrer lokalen X/Z-Achsen
   const pos = new THREE.Vector3();
   const quat = new THREE.Quaternion();
   const scl = new THREE.Vector3();
   new THREE.Matrix4().copy(baseMatrix).decompose(pos, quat, scl);
-
   const offsetLocal = new THREE.Vector3(dx, 0, dz).applyQuaternion(quat);
   pos.add(offsetLocal);
-
   const out = new THREE.Matrix4();
   out.compose(pos, quat, scl);
   return out;
@@ -525,7 +514,6 @@ function randomizeFleet(board, lengths) {
       }
     }
     if (!placed) {
-      // Fallback: brutforce systematisch
       outer: for (let r = 0; r < board.cells; r++) {
         for (let c = 0; c < board.cells; c++) {
           for (const o of ["H","V"]) {
