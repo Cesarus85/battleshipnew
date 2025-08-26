@@ -1,4 +1,4 @@
-// AR + Diagnose + Zielmodus + Trigger-Placement + Schiffe-Editor (Setup)
+// AR + Diagnose + Zielmodus + Trigger-Placement + Setup + KI-Runden (Random)
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { Board } from "./board.js";
 import { Picker } from "./picking.js";
@@ -25,6 +25,7 @@ const fleetEl = document.getElementById("fleet");
 const btnRotate = document.getElementById("btnRotate");
 const btnUndo = document.getElementById("btnUndo");
 const btnStartGame = document.getElementById("btnStartGame");
+const turnEl = document.getElementById("turn");
 
 let renderer, scene, camera;
 let xrSession = null;
@@ -34,18 +35,25 @@ let hitTestSource = null;
 let reticle = null;
 let lastHitPose = null;
 
-let board = null;
+// Zwei Boards
+let playerBoard = null;
+let enemyBoard = null;
+
 let picker = null;
 let fleet = null;
 
 // Zielmodus: "gaze" | "controller"
 let aimMode = "gaze";
 
-// Game-Phase: "placement" -> Brett platzieren; "setup" -> Schiffe setzen; "play" -> Spiel
+// Game-Phase: "placement" -> Bretter platzieren; "setup" -> eigene Schiffe; "play" -> Spiel; "gameover"
 let phase = "placement";
 
 // Setup-State
 let orientation = "H"; // "H" oder "V"
+
+// Runden-State
+let turn = "player"; // "player" | "ai"
+let aiCandidates = null; // Array verbleibender unbeschossener Zellen auf Spieler-Brett
 
 initGL();
 wireUI();
@@ -96,7 +104,7 @@ function wireUI() {
 
   btnDiag.addEventListener("click", () => diagnose());
   btnPerms.addEventListener("click", () => {
-    statusEl.textContent = "Quest-Browser → Seiteneinstellungen: 'Passthrough/AR' & 'Bewegung/Tracking' erlauben. Falls früher abgelehnt: Berechtigungen zurücksetzen und Seite neu laden.";
+    statusEl.textContent = "Quest-Browser → Seiteneinstellungen: 'Passthrough/AR' & 'Bewegung/Tracking' erlauben. Falls abgelehnt: Berechtigungen zurücksetzen und Seite neu laden.";
   });
 
   btnRotate.addEventListener("click", rotateShip);
@@ -204,7 +212,7 @@ function onSessionEnd() {
   xrSession = null; hitTestSource = null; lastHitPose = null;
   reticle.visible = false;
   btnStart.disabled = false; btnStartSafe.disabled = false;
-  btnReset.disabled = !!board;
+  btnReset.disabled = !!playerBoard;
   aimInfoEl.textContent = "";
   setPhase("placement");
 }
@@ -230,15 +238,24 @@ function onXRFrame(time, frame) {
         reticle.visible = true; reticle.matrix.copy(m);
       }
     } else { reticle.visible = false; }
-  } else {
-    // Hover je nach Zielmodus
+  } else if (phase === "setup") {
+    picker.setBoard(playerBoard);
     const cell = updateHover();
-    if (phase === "setup" && board && cell) {
+    if (playerBoard && cell) {
       const L = fleet.currentLength();
-      const valid = board.canPlaceShip(cell.row, cell.col, L, orientation);
-      board.showGhost(cell.row, cell.col, L, orientation, valid);
-    } else if (phase === "setup" && board) {
-      board.clearGhost();
+      const valid = playerBoard.canPlaceShip(cell.row, cell.col, L, orientation);
+      playerBoard.showGhost(cell.row, cell.col, L, orientation, valid);
+    } else if (playerBoard) {
+      playerBoard.clearGhost();
+    }
+  } else if (phase === "play") {
+    // Hover nur auf dem gegnerischen Brett, wenn der Spieler dran ist
+    if (turn === "player") {
+      picker.setBoard(enemyBoard);
+      updateHover();
+    } else {
+      // KI dran: kein Hover
+      picker.setBoard(null);
     }
   }
 
@@ -246,10 +263,10 @@ function onXRFrame(time, frame) {
 }
 
 function updateHover() {
-  if (!board) return null;
+  if (!picker.board) return null;
   if (aimMode === "gaze") {
     const { changed, cell } = picker.updateFromCamera(camera);
-    if (changed) hoverCellEl.textContent = cell ? board.cellLabel(cell.row, cell.col) : "–";
+    if (changed) hoverCellEl.textContent = cell ? picker.board.cellLabel(cell.row, cell.col) : "–";
     return picker.hoverCell || null;
   } else {
     const src = pickActiveInputSource();
@@ -258,18 +275,79 @@ function updateHover() {
     if (!pose) return null;
     const { origin, dir } = originDirFromXRPose(pose);
     const { changed, cell } = picker.updateWithRay(origin, dir);
-    if (changed) hoverCellEl.textContent = cell ? board.cellLabel(cell.row, cell.col) : "–";
+    if (changed) hoverCellEl.textContent = cell ? picker.board.cellLabel(cell.row, cell.col) : "–";
     return picker.hoverCell || null;
   }
 }
 
-function placeBoardAtReticle() {
-  if (!lastHitPose || board) return;
-  const poseM = new THREE.Matrix4().fromArray(lastHitPose.matrix ?? matrixFromTransform(lastHitPose));
-  board = new Board(0.50, 10);
-  board.placeAtMatrix(poseM);
-  board.addToScene(scene);
-  picker.setBoard(board);
+function onSelect() {
+  if (phase === "placement") { placeBoardsFromReticle(); return; }
+
+  if (phase === "setup") {
+    const cell = picker.hoverCell; if (!cell) return;
+    const L = fleet.currentLength(); if (!L) return;
+    const ok = playerBoard.canPlaceShip(cell.row, cell.col, L, orientation);
+    if (!ok) { statusEl.textContent = "Ungültige Position (außerhalb oder Kollision)."; return; }
+    playerBoard.placeShip(cell.row, cell.col, L, orientation);
+    fleet.advance(cell.row, cell.col, L, orientation);
+    lastPickEl.textContent = playerBoard.cellLabel(cell.row, cell.col);
+    updateFleetUI();
+    playerBoard.clearGhost();
+    if (fleet.complete()) {
+      btnStartGame.disabled = false;
+      statusEl.textContent = "Flotte komplett. „Spiel starten“ aktiv.";
+    }
+    return;
+  }
+
+  if (phase === "play" && turn === "player") {
+    if (!enemyBoard || !picker.hoverCell) return;
+    const { row, col } = picker.hoverCell;
+
+    // Spieler schießt auf Gegner
+    const res = enemyBoard.receiveShot(row, col);
+    if (res.result === "repeat") { statusEl.textContent = "Schon beschossen. Wähle eine andere Zelle."; return; }
+
+    if (res.result === "hit" || res.result === "sunk") {
+      enemyBoard.markCell(row, col, 0x2ecc71, 0.9); // grün
+    } else {
+      enemyBoard.markCell(row, col, 0xd0d5de, 0.9); // grau
+    }
+    lastPickEl.textContent = enemyBoard.cellLabel(row, col);
+
+    if (enemyBoard.allShipsSunk()) return gameOver("player");
+
+    // Zug an KI übergeben
+    setTurn("ai");
+    setTimeout(aiTurn, 650);
+  }
+}
+
+function onSqueeze() {
+  if (phase === "setup") rotateShip();
+}
+
+/* ---------- Boards platzieren ---------- */
+function placeBoardsFromReticle() {
+  if (!lastHitPose || playerBoard || enemyBoard) return;
+
+  // Basis-Matrix (Spieler-Brett)
+  const baseM = new THREE.Matrix4().fromArray(lastHitPose.matrix ?? matrixFromTransform(lastHitPose));
+
+  playerBoard = new Board(0.50, 10, { baseColor: 0x0d1b2a, shipColor: 0x5dade2, showShips: true });
+  playerBoard.placeAtMatrix(baseM);
+  playerBoard.addToScene(scene);
+
+  // Gegner-Brett: rechts daneben (lokal +X)
+  const gap = 0.12;
+  const dx = playerBoard.size + gap; // 0.62 m
+  const enemyM = offsetLocalXZ(baseM, dx, 0);
+  enemyBoard = new Board(0.50, 10, { baseColor: 0x1b1430, shipColor: 0xaa66ff, showShips: false });
+  enemyBoard.placeAtMatrix(enemyM);
+  enemyBoard.addToScene(scene);
+
+  picker.setBoard(playerBoard);
+
   reticle.visible = false;
   btnReset.disabled = false;
 
@@ -277,38 +355,7 @@ function placeBoardAtReticle() {
   fleet = new FleetManager([5,4,3,3,2]);
   setPhase("setup");
   updateFleetUI();
-  statusEl.textContent = "Schiffe setzen: Ziel auf Zelle → Trigger platziert, Squeeze dreht (H/V).";
-}
-
-function onSelect() {
-  if (phase === "placement") { placeBoardAtReticle(); return; }
-  if (phase === "setup") {
-    const cell = picker.hoverCell; if (!cell) return;
-    const L = fleet.currentLength(); if (!L) return;
-    const ok = board.canPlaceShip(cell.row, cell.col, L, orientation);
-    if (!ok) { statusEl.textContent = "Ungültige Position (außerhalb oder Kollision)."; return; }
-    board.placeShip(cell.row, cell.col, L, orientation);
-    fleet.advance(cell.row, cell.col, L, orientation);
-    lastPickEl.textContent = board.cellLabel(cell.row, cell.col);
-    updateFleetUI();
-    // Ghost verschwindet, wird im nächsten Frame neu berechnet
-    board.clearGhost();
-    if (fleet.complete()) {
-      btnStartGame.disabled = false;
-      statusEl.textContent = "Flotte komplett. „Spiel starten“ aktiv.";
-    }
-    return;
-  }
-  if (phase === "play") {
-    if (!picker.hoverCell) return;
-    const { row, col } = picker.hoverCell;
-    board.markCell(row, col, 0xffffff, 0.55);
-    lastPickEl.textContent = board.cellLabel(row, col);
-  }
-}
-
-function onSqueeze() {
-  if (phase === "setup") rotateShip();
+  statusEl.textContent = "Schiffe setzen (linkes Brett): Ziel auf Zelle → Trigger, Squeeze rotiert (H/V).";
 }
 
 function rotateShip() {
@@ -317,39 +364,93 @@ function rotateShip() {
 }
 
 function undoShip() {
-  if (!board || !fleet) return;
-  const last = board.undoLastShip();
+  if (!playerBoard || !fleet) return;
+  const last = playerBoard.undoLastShip();
   if (!last) return;
-  fleet.undo(); // fügt die Länge wieder ein
+  fleet.undo();
   btnStartGame.disabled = true;
   updateFleetUI();
 }
 
 function startGame() {
   if (!fleet || !fleet.complete()) return;
+  // KI-Flotte zufällig setzen
+  randomizeFleet(enemyBoard, [5,4,3,3,2]);
+
   setPhase("play");
-  board.clearGhost();
-  statusEl.textContent = "Spielphase: Zielen & Trigger → Schuss markieren (proto).";
+  setTurn("player");
+  picker.setBoard(enemyBoard);
+  playerBoard.clearGhost();
+  statusEl.textContent = "Spielphase: Ziel auf das rechte Brett und Trigger drücken.";
 }
 
-function resetAll() {
-  if (board) {
-    picker.setBoard(null);
-    board.removeFromScene(scene);
-    board.dispose();
-    board = null;
+function setTurn(t) {
+  turn = t;
+  turnEl.textContent = (t === "player") ? "Du bist dran" : "KI ist dran …";
+}
+
+/* ---------- KI (Random, ohne Wiederholung) ---------- */
+function aiTurn() {
+  if (phase !== "play" || !playerBoard) return;
+
+  // Kandidaten initialisieren, falls leer
+  if (!aiCandidates) aiCandidates = allCells(playerBoard.cells);
+
+  // Filter: noch nicht beschossen
+  aiCandidates = aiCandidates.filter(([r, c]) => playerBoard.shots[r][c] === 0);
+  if (aiCandidates.length === 0) return; // sollte nicht passieren
+
+  // Zufällige Zelle wählen
+  const idx = Math.floor(Math.random() * aiCandidates.length);
+  const [row, col] = aiCandidates[idx];
+
+  const res = playerBoard.receiveShot(row, col);
+  if (res.result === "hit" || res.result === "sunk") {
+    playerBoard.markCell(row, col, 0xe74c3c, 0.95); // rot
+    statusEl.textContent = `KI trifft auf deinem Brett: ${playerBoard.cellLabel(row, col)}!`;
+  } else if (res.result === "miss") {
+    playerBoard.markCell(row, col, 0x95a5a6, 0.9); // grau
+    statusEl.textContent = `KI verfehlt: ${playerBoard.cellLabel(row, col)}.`;
+  } else {
+    // repeat – wähle sofort neu
+    return setTimeout(aiTurn, 0);
   }
+
+  if (playerBoard.allShipsSunk()) return gameOver("ai");
+
+  // Zug zurück an Spieler
+  setTurn("player");
+  statusEl.textContent += " Dein Zug.";
+}
+
+/* ---------- Game Over ---------- */
+function gameOver(winner) {
+  setPhase("gameover");
+  picker.setBoard(null);
+  const msg = (winner === "player") ? "Du hast gewonnen! 🎉" : "KI hat gewonnen.";
+  statusEl.textContent = msg + " Tippe 'Zurücksetzen' für ein neues Spiel.";
+}
+
+/* ---------- Reset ---------- */
+function resetAll() {
+  picker.setBoard(null);
+  if (playerBoard) { playerBoard.removeFromScene(scene); playerBoard.dispose(); }
+  if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
+
+  playerBoard = null; enemyBoard = null;
+  fleet = null; aiCandidates = null;
+  orientation = "H";
   hoverCellEl.textContent = "–";
   lastPickEl.textContent = "–";
-  statusEl.textContent = "Zurückgesetzt. Richte Reticle auf die Fläche und starte erneut.";
-  btnReset.disabled = true;
   setPhase("placement");
+  setTurn("player");
+  btnReset.disabled = true;
+  statusEl.textContent = "Zurückgesetzt. Richte Reticle auf die Fläche und drücke Trigger zum Platzieren.";
 }
 
+/* ---------- UI Helfer ---------- */
 function updateFleetUI() {
-  // Phase-Text
   phaseEl.textContent = phase + (phase === "setup" ? ` (Ori: ${orientation})` : "");
-  // Pillen bauen
   if (!fleet) { fleetEl.innerHTML = ""; btnUndo.disabled = true; btnStartGame.disabled = true; return; }
   const remain = fleet.summary();
   const orderStr = fleet.order.length ? `Als Nächstes: ${fleet.order[0]}er` : "–";
@@ -360,8 +461,10 @@ function updateFleetUI() {
   }
   fleetEl.innerHTML = `${parts.join(" ")} &nbsp; | &nbsp; <strong>${orderStr}</strong>`;
   btnUndo.disabled = fleet.placed.length === 0;
+  btnStartGame.disabled = !fleet.complete();
 }
 
+/* ---------- Mathe & XR Helpers ---------- */
 function pickActiveInputSource() {
   if (!xrSession) return null;
   let right = null, left = null, any = null;
@@ -382,6 +485,54 @@ function originDirFromXRPose(pose) {
   const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(q).normalize();
   return { origin, dir };
 }
+
 function matrixFromTransform(t) {
   return (new XRRigidTransform(t.position, t.orientation)).matrix;
+}
+
+function offsetLocalXZ(baseMatrix, dx, dz) {
+  // Verschiebe die Pose entlang ihrer lokalen X/Z-Achsen
+  const pos = new THREE.Vector3();
+  const quat = new THREE.Quaternion();
+  const scl = new THREE.Vector3();
+  new THREE.Matrix4().copy(baseMatrix).decompose(pos, quat, scl);
+
+  const offsetLocal = new THREE.Vector3(dx, 0, dz).applyQuaternion(quat);
+  pos.add(offsetLocal);
+
+  const out = new THREE.Matrix4();
+  out.compose(pos, quat, scl);
+  return out;
+}
+
+function allCells(n) {
+  const arr = [];
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) arr.push([r, c]);
+  return arr;
+}
+
+/* ---------- KI-Flottenplatzierung ---------- */
+function randomizeFleet(board, lengths) {
+  for (const L of lengths) {
+    let placed = false, guard = 0;
+    while (!placed && guard++ < 500) {
+      const orientation = Math.random() < 0.5 ? "H" : "V";
+      const row = Math.floor(Math.random() * board.cells);
+      const col = Math.floor(Math.random() * board.cells);
+      if (board.canPlaceShip(row, col, L, orientation)) {
+        board.placeShip(row, col, L, orientation);
+        placed = true;
+      }
+    }
+    if (!placed) {
+      // Fallback: brutforce systematisch
+      outer: for (let r = 0; r < board.cells; r++) {
+        for (let c = 0; c < board.cells; c++) {
+          for (const o of ["H","V"]) {
+            if (board.canPlaceShip(r, c, L, o)) { board.placeShip(r, c, L, o); placed = true; break outer; }
+          }
+        }
+      }
+    }
+  }
 }
