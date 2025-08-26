@@ -1,5 +1,4 @@
-// board.js
-// Board-Modell & Geometrie (10x10 Grid), Welt<->Zell-Koordinaten, Marker (lokal!)
+// Board-Modell & Geometrie (10x10 Grid), Welt<->Zell-Koordinaten, Marker (lokal & korrekt gerendert)
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 
 export class Board {
@@ -26,24 +25,28 @@ export class Board {
     // Base (liegt in Board-Lokal bei y=0, Normale +y)
     const baseGeo = new THREE.PlaneGeometry(this.size, this.size);
     baseGeo.rotateX(-Math.PI / 2);
+
+    // Wichtig: Transparent, aber KEIN Depth-Write, damit Overlays (Marker/Hover) nie „darunter“ landen
     const baseMat = new THREE.MeshStandardMaterial({
       color: 0x0d1b2a,
       metalness: 0.0,
       roughness: 1.0,
       transparent: true,
       opacity: 0.7,
-      // Schiebt die Base minimal "nach unten", damit Marker/Lines sauber drüber liegen
+      depthWrite: false,         // <— entscheidend
       polygonOffset: true,
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1
     });
     const base = new THREE.Mesh(baseGeo, baseMat);
     base.receiveShadow = false;
+    base.renderOrder = 0;
     this.group.add(base);
 
-    // Grid-Linien leicht über der Base
+    // Grid-Linien (leicht über der Base)
     const lines = this._makeGridLines();
     lines.position.y += 0.001;
+    lines.renderOrder = 1;
     this.group.add(lines);
   }
 
@@ -115,11 +118,10 @@ export class Board {
     if (col === this.cells) col = this.cells - 1;
     if (row === this.cells) row = this.cells - 1;
 
-    // Zentrum in Weltkoords für Hover
     const centerLocal = this.cellCenterLocal(row, col);
     const centerWorld = centerLocal.clone().applyMatrix4(this.group.matrixWorld);
 
-    return { hit: true, row, col, centerWorld };
+    return { hit: true, row, col, centerLocal, centerWorld };
   }
 
   // Zellzentrum in lokalen Board-Koordinaten (y=0)
@@ -142,25 +144,35 @@ export class Board {
     return `${letter}-${row + 1}`;               // 1..10
   }
 
-  // Marker jetzt korrekt in LOKALEN Koordinaten platzieren
-  markCell(row, col, color = 0xffffff, opacity = 0.6) {
+  // Marker in LOKALEN Koordinaten + klares Render-Layering
+  markCell(row, col, color = 0xffffff, opacity = 0.9) {
     const key = `${row},${col}`;
     if (this.markers.has(key)) return; // doppelt vermeiden
 
     const r = (this.cellSize * 0.45);
-    const geo = new THREE.CircleGeometry(r, 40);
+    const geo = new THREE.CircleGeometry(r, 48);
     geo.rotateX(-Math.PI / 2); // liegt in Board-Ebene (lokal)
 
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity });
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity,
+      depthTest: true,
+      depthWrite: false    // Marker schreibt nicht in Depth, überdeckt aber dank renderOrder
+    });
     const mesh = new THREE.Mesh(geo, mat);
 
     // Lokales Zentrum + kleiner lokaler Offset nach oben
     const local = this.cellCenterLocal(row, col);
     mesh.position.copy(local);
-    mesh.position.y += 0.001;
+    mesh.position.y += 0.002;
 
+    mesh.renderOrder = 2; // über Grid/Base
     this.group.add(mesh);
     this.markers.set(key, mesh);
+
+    // Sicherheit: Weltmatrizen aktualisieren
+    this.group.updateMatrixWorld(true);
   }
 
   clearMarkers() {
