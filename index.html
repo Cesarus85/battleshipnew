@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>AR Battleship – Step 2 (Picking)</title>
+  <title>AR Battleship – Step 2 (Picking + Aim Toggle)</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -11,12 +11,20 @@
   <div id="overlay">
     <div id="ui">
       <h1>AR Battleship</h1>
-      <p id="status">Tippe „AR starten“, richte den Kopf auf eine Fläche, platziere das Brett – ziele dann mit der Kopfmitte auf eine Zelle.</p>
+      <p id="status">
+        AR starten → Reticle auf Tisch → Brett platzieren. Zielmodus umschalten mit den Buttons.
+      </p>
 
       <div class="buttons">
         <button id="btnStart">AR starten</button>
         <button id="btnPlace" disabled>Hier platzieren</button>
         <button id="btnReset" disabled>Zurücksetzen</button>
+      </div>
+
+      <div id="aimToggle" class="toggle">
+        <button id="btnAimGaze" class="active">Zielen: Kopf</button>
+        <button id="btnAimController">Zielen: Hand/Controller</button>
+        <span id="aimInfo"></span>
       </div>
 
       <div id="hud">
@@ -25,14 +33,13 @@
       </div>
 
       <div id="hints">
-        <p>• Zielen per <strong>Kopfblick</strong> (Bildmitte) – Trigger/Tippen zum Auswählen.</p>
-        <p>• Dies ist ein Dev-Schritt: wir markieren nur Zellen (noch keine Regeln/KI).</p>
+        <p>• <strong>Kopf</strong>: Blick in Bildmitte; <strong>Hand/Controller</strong>: Ray vom aktiven Gerät.</p>
+        <p>• Auswählen per Trigger/Pinch (WebXR <code>select</code> Event).</p>
       </div>
     </div>
   </div>
 
   <canvas id="xr-canvas"></canvas>
-
   <script type="module" src="./main.js"></script>
 </body>
 </html>
