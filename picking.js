@@ -1,4 +1,4 @@
-// Zell-Hover via Kopfblick (Ray aus Kamera-Mitte) + Highlight-Quad
+// Zell-Hover via Ray (generisch) + optional: Kopfblick-Fallback
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 
 export class Picker {
@@ -20,7 +20,6 @@ export class Picker {
   setBoard(board) {
     this.board = board;
     if (board) {
-      // Geometrie auf Zellgröße anpassen
       const s = board.cellSize * 0.98;
       this.hoverMesh.geometry.dispose();
       this.hoverMesh.geometry = new THREE.PlaneGeometry(s, s);
@@ -28,18 +27,13 @@ export class Picker {
       this.hoverMesh.visible = false;
     } else {
       this.hoverMesh.visible = false;
+      this.hoverCell = null;
     }
   }
 
-  // Berechnet Hover per Kamera-Ray (Kopfblick). Fallback ist robust auf Quest.
-  update(camera) {
+  // Allgemein: Update mit beliebigem Ray (Weltkoords)
+  updateWithRay(origin, dir) {
     if (!this.board) return { changed: false, cell: null };
-
-    const origin = new THREE.Vector3();
-    camera.getWorldPosition(origin);
-
-    const dir = new THREE.Vector3(0, 0, -1);
-    dir.applyQuaternion(camera.quaternion).normalize();
 
     const hit = this.board.raycastCell(origin, dir);
     if (!hit.hit) {
@@ -58,12 +52,20 @@ export class Picker {
       this.hoverMesh.visible = true;
       return { changed: true, cell: this.hoverCell };
     } else {
-      // nur Position updaten, falls Kamera driftet
       this.hoverMesh.position.copy(centerWorld);
       this.hoverMesh.position.y += 0.002;
       this.hoverMesh.visible = true;
       return { changed: false, cell: this.hoverCell };
     }
+  }
+
+  // Komfort: Kopfblick (Ray aus Kamera)
+  updateFromCamera(camera) {
+    const origin = new THREE.Vector3();
+    camera.getWorldPosition(origin);
+
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+    return this.updateWithRay(origin, dir);
   }
 
   dispose() {
