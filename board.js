@@ -1,4 +1,4 @@
-// Board: Geometrie, Ghost, Flotte, Trefferlogik, Siegprüfung
+// Board: Geometrie, Ghost, Flotte, Trefferlogik, Siegprüfung + Effekte
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 
 export class Board {
@@ -41,6 +41,9 @@ export class Board {
 
     // Ghost-Mesh (Vorschau)
     this.ghost = null;
+
+    // FX
+    this.effects = []; // { type, mesh, t, life, onUpdate?(e,dt) }
   }
 
   _buildGeometry() {
@@ -99,6 +102,13 @@ export class Board {
     this.markers.forEach(m => { m.geometry?.dispose(); m.material?.dispose?.(); });
     this.markers.clear();
     if (this.ghost) { this.group.remove(this.ghost); this.ghost.geometry.dispose(); this.ghost.material.dispose(); this.ghost = null; }
+    // FX entsorgen
+    this.effects.forEach(e => {
+      this.group.remove(e.mesh);
+      e.mesh.geometry?.dispose();
+      e.mesh.material?.dispose?.();
+    });
+    this.effects = [];
   }
 
   /* ---------- Koordinaten & Ray ---------- */
@@ -107,7 +117,7 @@ export class Board {
     const d = worldRayDir.clone().transformDirection(this.inverseMatrix);
 
     const denom = d.y;
-    if (Math.abs(denom) < 1e-6) return { hit: false };
+    if (Math.abs(denom) < 1e-7) return { hit: false };
     const t = -o.y / denom;
     if (t < 0) return { hit: false };
 
@@ -226,7 +236,7 @@ export class Board {
 
   resetFleet() { while (this.ships.length) this.undoLastShip(); }
 
-  /* ---------- Treffer/Miss Marker ---------- */
+  /* ---------- Marker ---------- */
   markCell(row, col, color = 0xffffff, opacity = 0.9, order = 3) {
     const key = `${row},${col}`;
     if (this.markers.has(key)) return;
@@ -286,5 +296,73 @@ export class Board {
 
   allShipsSunk() {
     return this.hitCount >= this.totalShipCells && this.totalShipCells > 0;
+  }
+
+  /* ---------- FX: Pulse & Flash ---------- */
+  pulseAtCell(row, col, color = 0xffffff, life = 0.6) {
+    const inner = this.cellSize * 0.12;
+    const outer = this.cellSize * 0.48;
+    const geo = new THREE.RingGeometry(inner, outer, 48);
+    geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.75, depthTest: false, depthWrite: false });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(this.cellCenterLocal(row, col));
+    mesh.position.y += 0.003;
+    mesh.renderOrder = 4;
+    mesh.scale.set(0.75, 0.75, 0.75);
+
+    this.group.add(mesh);
+    this.effects.push({
+      type: "ring",
+      mesh, t: 0, life,
+      onUpdate: (e, dt) => {
+        e.t += dt;
+        const k = Math.min(1, e.t / e.life);
+        const s = 0.75 + 0.9 * k;
+        e.mesh.scale.set(s, s, s);
+        e.mesh.material.opacity = 0.75 * (1 - k);
+      }
+    });
+  }
+
+  flashShip(ship, life = 0.9) {
+    const w = ship.orientation === "H" ? ship.length * this.cellSize : this.cellSize;
+    const h = ship.orientation === "H" ? this.cellSize : ship.length * this.cellSize;
+    const geo = new THREE.PlaneGeometry(w, h);
+    geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.0, depthTest: false, depthWrite: false });
+    const mesh = new THREE.Mesh(geo, mat);
+    const base = this.cellCenterLocal(ship.row, ship.col);
+    const dx = ship.orientation === "H" ? (ship.length - 1) * 0.5 * this.cellSize : 0;
+    const dz = ship.orientation === "V" ? (ship.length - 1) * 0.5 * this.cellSize : 0;
+    mesh.position.set(base.x + dx, 0.0035, base.z + dz);
+    mesh.renderOrder = 4;
+    this.group.add(mesh);
+
+    this.effects.push({
+      type: "flash",
+      mesh, t: 0, life,
+      onUpdate: (e, dt) => {
+        e.t += dt;
+        const k = Math.min(1, e.t / e.life);
+        // 2 Pulse mit Ausklingen
+        const puls = Math.max(0, Math.sin(k * Math.PI * 4)) * (1 - k);
+        e.mesh.material.opacity = 0.55 * puls;
+      }
+    });
+  }
+
+  updateEffects(dt) {
+    if (!this.effects.length) return;
+    for (let i = this.effects.length - 1; i >= 0; i--) {
+      const e = this.effects[i];
+      e.onUpdate?.(e, dt);
+      if (e.t >= e.life) {
+        this.group.remove(e.mesh);
+        e.mesh.geometry?.dispose();
+        e.mesh.material?.dispose?.();
+        this.effects.splice(i, 1);
+      }
+    }
   }
 }
