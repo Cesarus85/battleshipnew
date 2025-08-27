@@ -487,22 +487,6 @@ function resetAll() {
   playEarcon("reset");
 }
 
-/* ---------- UI Helfer ---------- */
-function updateFleetUI() {
-  phaseEl.textContent = phase + (phase === "setup" ? ` (Ori: ${orientation})` : "");
-  if (!fleet) { fleetEl.innerHTML = ""; btnUndo.disabled = true; if (btnStartGame) btnStartGame.disabled = true; return; }
-  const remain = fleet.summary();
-  const orderStr = fleet.order.length ? `Als Nächstes: ${fleet.order[0]}er` : "–";
-  const parts = [];
-  for (const L of [5,4,3,2]) {
-    const n = remain[L] || 0;
-    parts.push(`<span class="pill">${L}er × ${n}</span>`);
-  }
-  fleetEl.innerHTML = `${parts.join(" ")} &nbsp; | &nbsp; <strong>${orderStr}</strong>`;
-  btnUndo.disabled = fleet.placed.length === 0;
-  if (btnStartGame) btnStartGame.disabled = !fleet.complete();
-}
-
 /* ---------- XR Helpers ---------- */
 function pickActiveInputSource() {
   if (!xrSession) return null;
