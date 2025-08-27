@@ -41,6 +41,7 @@ let reticle = null;
 let lastHitPose = null;
 
 let prevTime = null;
+let lastXRFrame = null; // <<< wichtig: für onSelect genutzt
 
 // Zwei Boards
 let playerBoard = null;
@@ -191,6 +192,7 @@ async function startAR(mode = "regular") {
     setAimMode(aimMode);
     setPhase("placement");
     prevTime = null;
+    lastXRFrame = null;
     renderer.setAnimationLoop(onXRFrame);
   } catch (err) {
     statusEl.textContent = `AR-Start fehlgeschlagen: ${err?.name || "Error"} – ${err?.message || err}`;
@@ -222,6 +224,7 @@ function onInputSourcesChange() {
 
 function onXRFrame(time, frame) {
   if (!frame) return;
+  lastXRFrame = frame; // <<< Frame cachen
   if (prevTime == null) prevTime = time;
   const dt = Math.min(0.1, (time - prevTime) / 1000);
   prevTime = time;
@@ -281,7 +284,7 @@ function onSelect(e) {
   if (phase === "placement") { placeBoardsFromReticle(); buzzFromEvent(e, 0.2, 30); playEarcon("placeBoard"); return; }
 
   if (phase === "setup") {
-    const cellEvt = getCellFromSelectEvent(e, playerBoard, localRefSpace, renderer.xr.getFrame()) || picker.hoverCell;
+    const cellEvt = getCellFromSelectEvent(e, playerBoard, localRefSpace, lastXRFrame) || picker.hoverCell;
     if (!cellEvt) { statusEl.textContent = "Kein gültiges Feld getroffen – minimal nach unten neigen."; playEarcon("error"); buzzFromEvent(e, 0.1, 30); return; }
     const { row, col } = cellEvt;
 
@@ -306,7 +309,7 @@ function onSelect(e) {
 
   if (phase === "play") {
     if (turn !== "player") { statusEl.textContent = "KI ist dran …"; playEarcon("error"); return; }
-    const cellEvt = getCellFromSelectEvent(e, enemyBoard, localRefSpace, renderer.xr.getFrame()) || picker.hoverCell;
+    const cellEvt = getCellFromSelectEvent(e, enemyBoard, localRefSpace, lastXRFrame) || picker.hoverCell;
     if (!cellEvt) { statusEl.textContent = "Kein gültiges Feld getroffen – minimal nach unten neigen."; playEarcon("error"); buzzFromEvent(e, 0.1, 30); return; }
     const { row, col } = cellEvt;
 
