@@ -1,9 +1,10 @@
-// AR + Diagnose + Zielmodus + Trigger-Placement + Setup + KI-Runden + AUTO-START
-// + Audio/Haptik/FX + präziser Select-Ray + GameOver-Schild & Auto-Setup
+// AR + Setup + Spiel + Auto-Start + FX + Banner – mit Modul-Split
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { Board } from "./board.js";
 import { Picker } from "./picking.js";
 import { FleetManager } from "./ships.js";
+import { initAudio, playEarcon, buzzFromEvent, Banner } from "./fx.js";
+import { pickActiveInputSource, getCellFromSelectEvent, originDirFromXRPose, matrixFromTransform } from "./xr-input.js";
 
 const canvas = document.getElementById("xr-canvas");
 const overlay = document.getElementById("overlay");
@@ -25,10 +26,10 @@ const phaseEl = document.getElementById("phase");
 const fleetEl = document.getElementById("fleet");
 const btnRotate = document.getElementById("btnRotate");
 const btnUndo = document.getElementById("btnUndo");
-const btnStartGame = document.getElementById("btnStartGame"); // optional (evtl. hidden)
+const btnStartGame = document.getElementById("btnStartGame"); // optional
 const turnEl = document.getElementById("turn");
 
-// --- Konstante: Wartezeit bis Auto-Setup (ms)
+// Auto-Back-to-Setup Delay
 const GAMEOVER_DELAY = 3500;
 
 let renderer, scene, camera;
@@ -45,9 +46,9 @@ let prevTime = null;
 let playerBoard = null;
 let enemyBoard = null;
 
-// Merker für Board-Positionen (damit wir nach GameOver direkt zurück ins Setup können)
+// Matritzen merken
 let lastPlayerMatrix = null;
-let lastEnemyMatrix = null;
+let lastEnemyMatrix  = null;
 
 let picker = null;
 let fleet = null;
@@ -59,18 +60,12 @@ let aimMode = "gaze";
 let phase = "placement";
 
 // Setup-State
-let orientation = "H"; // "H" oder "V"
+let orientation = "H";
 
 // Runden-State
-let turn = "player"; // "player" | "ai"
+let turn = "player";
 let aiCandidates = null;
 
-// Audio/Haptik
-let audioCtx = null, masterGain = null;
-let audioEnabled = true, hapticsEnabled = true;
-
-// GameOver-Schild
-let bannerMesh = null;
 let gameoverTimer = null;
 
 initGL();
@@ -90,7 +85,7 @@ function initGL() {
   const ambient = new THREE.HemisphereLight(0xffffff, 0x222244, 0.8);
   scene.add(ambient);
 
-  // Reticle (für Platzierung)
+  // Reticle
   const ringGeo = new THREE.RingGeometry(0.07, 0.075, 48);
   ringGeo.rotateX(-Math.PI / 2);
   const ringMat = new THREE.MeshBasicMaterial({ color: 0x7bdcff, transparent: true, opacity: 0.9 });
@@ -137,10 +132,7 @@ function setAimMode(mode) {
   aimInfoEl.textContent = aimMode === "gaze" ? "Zielen über Kopfblick." : "Zielen über Hand/Controller-Ray.";
 }
 
-function setPhase(p) {
-  phase = p;
-  phaseEl.textContent = p;
-}
+function setPhase(p) { phase = p; phaseEl.textContent = p; }
 
 async function diagnose() {
   const lines = [];
@@ -217,12 +209,12 @@ function onSessionEnd() {
   aimInfoEl.textContent = "";
   setPhase("placement");
   clearGameoverTimer();
-  hideBanner();
+  Banner.hide(scene);
 }
 
 function onInputSourcesChange() {
   if (!xrSession) return;
-  const src = pickActiveInputSource();
+  const src = pickActiveInputSource(xrSession);
   aimInfoEl.textContent = src
     ? (aimMode === "controller" ? `Ray aktiv: ${src.handedness || "neutral"}` : "Zielen über Kopfblick.")
     : (aimMode === "controller" ? "Kein Hand/Controller-Ray." : "Zielen über Kopfblick.");
@@ -230,7 +222,6 @@ function onInputSourcesChange() {
 
 function onXRFrame(time, frame) {
   if (!frame) return;
-  // delta
   if (prevTime == null) prevTime = time;
   const dt = Math.min(0.1, (time - prevTime) / 1000);
   prevTime = time;
@@ -247,39 +238,34 @@ function onXRFrame(time, frame) {
     } else { reticle.visible = false; }
   } else if (phase === "setup") {
     picker.setBoard(playerBoard);
-    const cell = updateHover();
+    const cell = updateHover(frame);
     if (playerBoard && cell) {
       const L = fleet.currentLength();
       const valid = playerBoard.canPlaceShip(cell.row, cell.col, L, orientation);
       playerBoard.showGhost(cell.row, cell.col, L, orientation, valid);
     } else if (playerBoard) { playerBoard.clearGhost(); }
   } else if (phase === "play") {
-    if (turn === "player") { picker.setBoard(enemyBoard); updateHover(); }
+    if (turn === "player") { picker.setBoard(enemyBoard); updateHover(frame); }
     else { picker.setBoard(null); }
   }
 
-  // FX updaten
   playerBoard?.updateEffects?.(dt);
   enemyBoard?.updateEffects?.(dt);
 
-  // Banner immer zur Kamera drehen (Billboard)
-  if (bannerMesh) {
-    bannerMesh.lookAt(camera.position);
-  }
-
+  Banner.update(camera);
   renderer.render(scene, camera);
 }
 
-function updateHover() {
+function updateHover(frame) {
   if (!picker.board) return null;
   if (aimMode === "gaze") {
     const { changed, cell } = picker.updateFromCamera(camera);
     if (changed) hoverCellEl.textContent = cell ? picker.board.cellLabel(cell.row, cell.col) : "–";
     return picker.hoverCell || null;
   } else {
-    const src = pickActiveInputSource();
+    const src = pickActiveInputSource(xrSession);
     if (!src) { picker.updateWithRay(new THREE.Vector3(1e6,1e6,1e6), new THREE.Vector3(0,-1,0)); return null; }
-    const pose = renderer.xr.getFrame().getPose(src.targetRaySpace, localRefSpace);
+    const pose = frame.getPose(src.targetRaySpace, localRefSpace);
     if (!pose) return null;
     const { origin, dir } = originDirFromXRPose(pose);
     const { changed, cell } = picker.updateWithRay(origin, dir);
@@ -295,7 +281,7 @@ function onSelect(e) {
   if (phase === "placement") { placeBoardsFromReticle(); buzzFromEvent(e, 0.2, 30); playEarcon("placeBoard"); return; }
 
   if (phase === "setup") {
-    const cellEvt = getCellFromSelectEvent(e, playerBoard) || picker.hoverCell;
+    const cellEvt = getCellFromSelectEvent(e, playerBoard, localRefSpace, renderer.xr.getFrame()) || picker.hoverCell;
     if (!cellEvt) { statusEl.textContent = "Kein gültiges Feld getroffen – minimal nach unten neigen."; playEarcon("error"); buzzFromEvent(e, 0.1, 30); return; }
     const { row, col } = cellEvt;
 
@@ -310,7 +296,6 @@ function onSelect(e) {
     playerBoard.clearGhost();
     playEarcon("placeShip"); buzzFromEvent(e, 0.15, 40);
 
-    // Auto-Start
     if (fleet.complete()) {
       statusEl.textContent = "Flotte komplett – Spiel startet …";
       playEarcon("start");
@@ -321,7 +306,7 @@ function onSelect(e) {
 
   if (phase === "play") {
     if (turn !== "player") { statusEl.textContent = "KI ist dran …"; playEarcon("error"); return; }
-    const cellEvt = getCellFromSelectEvent(e, enemyBoard) || picker.hoverCell;
+    const cellEvt = getCellFromSelectEvent(e, enemyBoard, localRefSpace, renderer.xr.getFrame()) || picker.hoverCell;
     if (!cellEvt) { statusEl.textContent = "Kein gültiges Feld getroffen – minimal nach unten neigen."; playEarcon("error"); buzzFromEvent(e, 0.1, 30); return; }
     const { row, col } = cellEvt;
 
@@ -370,7 +355,6 @@ function placeBoardsFromReticle() {
   enemyBoard.placeAtMatrix(enemyM);
   enemyBoard.addToScene(scene);
 
-  // Matritzen merken, um später ohne Reticle neu zu starten
   lastPlayerMatrix = playerBoard.group.matrix.clone();
   lastEnemyMatrix  = enemyBoard.group.matrix.clone();
 
@@ -386,10 +370,7 @@ function placeBoardsFromReticle() {
 }
 
 /* ---------- Spielsteuerung ---------- */
-function rotateShip() {
-  orientation = (orientation === "H") ? "V" : "H";
-  updateFleetUI();
-}
+function rotateShip() { orientation = (orientation === "H") ? "V" : "H"; updateFleetUI(); }
 
 function undoShip() {
   if (!playerBoard || !fleet) return;
@@ -410,12 +391,9 @@ function startGame() {
   playEarcon("start");
 }
 
-function setTurn(t) {
-  turn = t;
-  turnEl.textContent = (t === "player") ? "Du bist dran" : "KI ist dran …";
-}
+function setTurn(t) { turn = t; turnEl.textContent = (t === "player") ? "Du bist dran" : "KI ist dran …"; }
 
-/* ---------- KI (Random, ohne Wiederholung) ---------- */
+/* ---------- KI ---------- */
 function aiTurn() {
   if (phase !== "play" || !playerBoard) return;
 
@@ -446,30 +424,33 @@ function aiTurn() {
   statusEl.textContent += " Dein Zug.";
 }
 
-/* ---------- Game Over: Schild + Auto-Setup ---------- */
+/* ---------- Game Over ---------- */
 function gameOver(winner) {
   setPhase("gameover");
   picker.setBoard(null);
   const msg = (winner === "player") ? "GEWONNEN!" : "VERLOREN";
   statusEl.textContent = (winner === "player" ? "Du hast gewonnen! 🎉" : "KI hat gewonnen.") + " Neues Spiel wird vorbereitet …";
   playEarcon(winner === "player" ? "win" : "lose");
-  showBanner(msg, winner === "player" ? "#19b26b" : "#e74c3c");
+
+  // Banner positionieren (Mitte zwischen Brettern, etwas erhöht)
+  const p1 = new THREE.Vector3(); playerBoard.group.getWorldPosition(p1);
+  const p2 = new THREE.Vector3(); enemyBoard.group.getWorldPosition(p2);
+  const mid = p1.clone().add(p2).multiplyScalar(0.5); mid.y += 0.30;
+  Banner.show(scene, mid, msg, winner === "player" ? "#19b26b" : "#e74c3c");
 
   clearGameoverTimer();
   gameoverTimer = setTimeout(() => {
-    hideBanner();
+    Banner.hide(scene);
     returnToSetupSameSpot();
   }, GAMEOVER_DELAY);
 }
 
-function clearGameoverTimer() {
-  if (gameoverTimer) { clearTimeout(gameoverTimer); gameoverTimer = null; }
-}
+function clearGameoverTimer() { if (gameoverTimer) { clearTimeout(gameoverTimer); gameoverTimer = null; } }
 
 /* ---------- Reset ---------- */
 function resetAll() {
   clearGameoverTimer();
-  hideBanner();
+  Banner.hide(scene);
   picker.setBoard(null);
   if (playerBoard) { playerBoard.removeFromScene(scene); playerBoard.dispose(); }
   if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
@@ -487,250 +468,6 @@ function resetAll() {
   playEarcon("reset");
 }
 
-/* ---------- XR Helpers ---------- */
-function pickActiveInputSource() {
-  if (!xrSession) return null;
-  let right = null, left = null, any = null;
-  for (const src of xrSession.inputSources) {
-    if (src.targetRayMode === "tracked-pointer") {
-      any = any || src;
-      if (src.handedness === "right") right = src;
-      else if (src.handedness === "left") left = src;
-    }
-  }
-  return right || left || any;
-}
-
-function getCellFromSelectEvent(e, board) {
-  try {
-    if (!e || !board || !localRefSpace) return null;
-    const frame = e.frame || renderer.xr.getFrame?.();
-    if (!frame || !e.inputSource?.targetRaySpace) return null;
-    const pose = frame.getPose(e.inputSource.targetRaySpace, localRefSpace);
-    if (!pose) return null;
-    const m = new THREE.Matrix4().fromArray(pose.transform.matrix ?? matrixFromTransform(pose.transform));
-    const origin = new THREE.Vector3().setFromMatrixPosition(m);
-    const q = new THREE.Quaternion().setFromRotationMatrix(m);
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(q).normalize();
-    const hit = board.raycastCell(origin, dir);
-    return hit.hit ? { row: hit.row, col: hit.col } : null;
-  } catch { return null; }
-}
-
-function originDirFromXRPose(pose) {
-  const m = new THREE.Matrix4().fromArray(pose.transform.matrix ?? matrixFromTransform(pose.transform));
-  const origin = new THREE.Vector3().setFromMatrixPosition(m);
-  const q = new THREE.Quaternion().setFromRotationMatrix(m);
-  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(q).normalize();
-  return { origin, dir };
-}
-
-function matrixFromTransform(t) { return (new XRRigidTransform(t.position, t.orientation)).matrix; }
-
-function offsetLocalXZ(baseMatrix, dx, dz) {
-  const pos = new THREE.Vector3();
-  const quat = new THREE.Quaternion();
-  const scl = new THREE.Vector3();
-  new THREE.Matrix4().copy(baseMatrix).decompose(pos, quat, scl);
-  const offsetLocal = new THREE.Vector3(dx, 0, dz).applyQuaternion(quat);
-  pos.add(offsetLocal);
-  const out = new THREE.Matrix4();
-  out.compose(pos, quat, scl);
-  return out;
-}
-
-function allCells(n) { const arr = []; for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) arr.push([r, c]); return arr; }
-
-/* ---------- KI-Flottenplatzierung ---------- */
-function randomizeFleet(board, lengths) {
-  for (const L of lengths) {
-    let placed = false, guard = 0;
-    while (!placed && guard++ < 500) {
-      const orientation = Math.random() < 0.5 ? "H" : "V";
-      const row = Math.floor(Math.random() * board.cells);
-      const col = Math.floor(Math.random() * board.cells);
-      if (board.canPlaceShip(row, col, L, orientation)) {
-        board.placeShip(row, col, L, orientation);
-        placed = true;
-      }
-    }
-    if (!placed) {
-      outer: for (let r = 0; r < board.cells; r++) {
-        for (let c = 0; c < board.cells; c++) {
-          for (const o of ["H","V"]) {
-            if (board.canPlaceShip(r, c, L, o)) { board.placeShip(r, c, L, o); placed = true; break outer; }
-          }
-        }
-      }
-    }
-  }
-}
-
-/* ---------- Audio ---------- */
-function initAudio() {
-  try {
-    if (!audioEnabled) return;
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      masterGain = audioCtx.createGain();
-      masterGain.gain.value = 0.25;
-      masterGain.connect(audioCtx.destination);
-    } else if (audioCtx.state === "suspended") {
-      audioCtx.resume();
-    }
-  } catch {}
-}
-
-function tone(freq=440, type="sine", dur=0.12, vol=0.25) {
-  if (!audioCtx || !audioEnabled) return;
-  const osc = audioCtx.createOscillator();
-  const g = audioCtx.createGain();
-  osc.type = type; osc.frequency.value = freq;
-  const now = audioCtx.currentTime;
-  g.gain.setValueAtTime(0, now);
-  g.gain.linearRampToValueAtTime(vol, now + 0.01);
-  g.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.02, dur));
-  osc.connect(g).connect(masterGain);
-  osc.start(now);
-  osc.stop(now + dur + 0.05);
-}
-
-function chord(freqs=[440,550,660], dur=0.35, vol=0.18) {
-  if (!audioCtx || !audioEnabled) return;
-  freqs.forEach((f,i)=> tone(f, i%2 ? "triangle":"sine", dur, vol));
-}
-
-function playEarcon(kind) {
-  switch(kind) {
-    case "placeBoard": tone(300, "sine", 0.08, 0.2); break;
-    case "placeShip":  tone(520, "triangle", 0.08, 0.2); tone(780,"triangle",0.06,0.12); break;
-    case "rotate":     tone(600, "sine", 0.05, 0.16); break;
-    case "start":      tone(500,"sine",0.08,0.22); setTimeout(()=>tone(700,"sine",0.08,0.2),80); break;
-    case "hit":        tone(220,"sine",0.14,0.26); setTimeout(()=>tone(140,"sine",0.12,0.22),50); break;
-    case "sunk":       chord([330,415,495],0.45,0.22); break;
-    case "miss":       tone(820,"triangle",0.06,0.16); break;
-    case "hit_enemy":  tone(260,"sine",0.12,0.22); break;
-    case "miss_enemy": tone(700,"triangle",0.05,0.14); break;
-    case "error":      tone(180,"square",0.05,0.18); break;
-    case "win":        chord([392,494,587],0.55,0.24); break;   // G B D
-    case "lose":       tone(160,"sine",0.25,0.22); break;
-    case "reset":      tone(480,"sine",0.05,0.18); break;
-  }
-}
-
-/* ---------- Haptik ---------- */
-function buzzFromEvent(e, intensity=0.5, durationMs=80) {
-  if (!hapticsEnabled || !e?.inputSource?.gamepad?.hapticActuators) return;
-  try {
-    for (const h of e.inputSource.gamepad.hapticActuators) {
-      h?.pulse?.(Math.min(1, Math.max(0, intensity)), Math.max(1, durationMs));
-    }
-  } catch {}
-}
-
-/* ---------- 3D GameOver-Schild ---------- */
-function showBanner(text = "GEWONNEN!", color = "#19b26b") {
-  hideBanner();
-
-  // Position: Mitte zwischen beiden Brettern, leicht erhöht
-  const p1 = new THREE.Vector3(); playerBoard.group.getWorldPosition(p1);
-  const p2 = new THREE.Vector3(); enemyBoard.group.getWorldPosition(p2);
-  const mid = p1.clone().add(p2).multiplyScalar(0.5); mid.y += 0.30;
-
-  bannerMesh = makeLabelPlane(text, color);
-  bannerMesh.position.copy(mid);
-  scene.add(bannerMesh);
-}
-
-function hideBanner() {
-  if (!bannerMesh) return;
-  scene.remove(bannerMesh);
-  // Ressourcen entsorgen
-  if (bannerMesh.material?.map) bannerMesh.material.map.dispose();
-  bannerMesh.material?.dispose?.();
-  bannerMesh.geometry?.dispose();
-  bannerMesh = null;
-}
-
-// Erzeugt eine Canvas-Textur + Plane als Schild
-function makeLabelPlane(text, colorHex = "#19b26b") {
-  const canvas = document.createElement("canvas");
-  canvas.width = 1024; canvas.height = 384;
-  const ctx = canvas.getContext("2d");
-
-  // Hintergrund (rundes Rechteck, halbtransparent)
-  const bg = "rgba(0,0,0,0.65)";
-  roundRect(ctx, 16, 16, canvas.width-32, canvas.height-32, 32, bg);
-
-  // Text
-  ctx.fillStyle = colorHex;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  // fette, große Schrift (Fallbacks für Quest)
-  ctx.font = "bold 180px system-ui, -apple-system, Roboto, Arial, sans-serif";
-  ctx.fillText(text, canvas.width/2, canvas.height/2 + 10);
-
-  // leichte Kontur
-  ctx.strokeStyle = "rgba(255,255,255,0.15)";
-  ctx.lineWidth = 6;
-  ctx.strokeText(text, canvas.width/2, canvas.height/2 + 10);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.anisotropy = 4;
-  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
-  const widthMeters = 0.80, heightMeters = widthMeters * (canvas.height/canvas.width);
-  const geo = new THREE.PlaneGeometry(widthMeters, heightMeters);
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.renderOrder = 10; // oberhalb von allem
-  return mesh;
-}
-
-function roundRect(ctx, x, y, w, h, r, fillStyle) {
-  const rr = Math.min(r, w*0.5, h*0.5);
-  ctx.beginPath();
-  ctx.moveTo(x+rr, y);
-  ctx.arcTo(x+w, y, x+w, y+h, rr);
-  ctx.arcTo(x+w, y+h, x, y+h, rr);
-  ctx.arcTo(x, y+h, x, y, rr);
-  ctx.arcTo(x, y, x+w, y, rr);
-  ctx.closePath();
-  ctx.fillStyle = fillStyle;
-  ctx.fill();
-}
-
-/* ---------- Zurück ins Setup (ohne neu platzieren) ---------- */
-function returnToSetupSameSpot() {
-  // Bretter neu erzeugen, gleiche Pose behalten
-  const keepPlayerM = lastPlayerMatrix?.clone();
-  const keepEnemyM  = lastEnemyMatrix?.clone();
-
-  // Aufräumen
-  picker.setBoard(null);
-  if (playerBoard) { playerBoard.removeFromScene(scene); playerBoard.dispose(); }
-  if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
-  playerBoard = null; enemyBoard = null;
-
-  // Neu erstellen
-  playerBoard = new Board(0.50, 10, { baseColor: 0x0d1b2a, shipColor: 0x5dade2, showShips: true });
-  enemyBoard  = new Board(0.50, 10, { baseColor: 0x1b1430, shipColor: 0xaa66ff, showShips: false });
-
-  if (keepPlayerM) playerBoard.placeAtMatrix(keepPlayerM);
-  if (keepEnemyM)  enemyBoard.placeAtMatrix(keepEnemyM);
-
-  playerBoard.addToScene(scene);
-  enemyBoard.addToScene(scene);
-
-  // UI/State zurücksetzen
-  aiCandidates = null;
-  fleet = new FleetManager([5,4,3,3,2]);
-  setPhase("setup");
-  setTurn("player");
-  picker.setBoard(playerBoard);
-  playerBoard.clearGhost?.();
-  statusEl.textContent = "Neues Spiel: Schiffe setzen (linkes Brett). Trigger platziert, Squeeze rotiert.";
-  updateFleetUI();
-}
-
 /* ---------- UI Helfer ---------- */
 function updateFleetUI() {
   phaseEl.textContent = phase + (phase === "setup" ? ` (Ori: ${orientation})` : "");
@@ -745,4 +482,48 @@ function updateFleetUI() {
   fleetEl.innerHTML = `${parts.join(" ")} &nbsp; | &nbsp; <strong>${orderStr}</strong>`;
   btnUndo.disabled = fleet.placed.length === 0;
   if (btnStartGame) btnStartGame.disabled = !fleet.complete();
+}
+
+/* ---------- Mathe Helpers ---------- */
+function offsetLocalXZ(baseMatrix, dx, dz) {
+  const pos = new THREE.Vector3();
+  const quat = new THREE.Quaternion();
+  const scl = new THREE.Vector3();
+  new THREE.Matrix4().copy(baseMatrix).decompose(pos, quat, scl);
+  const offsetLocal = new THREE.Vector3(dx, 0, dz).applyQuaternion(quat);
+  pos.add(offsetLocal);
+  const out = new THREE.Matrix4();
+  out.compose(pos, quat, scl);
+  return out;
+}
+
+function allCells(n) { const arr = []; for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) arr.push([r, c]); return arr; }
+
+/* ---------- Setup zurück ---------- */
+function returnToSetupSameSpot() {
+  const keepPlayerM = lastPlayerMatrix?.clone();
+  const keepEnemyM  = lastEnemyMatrix?.clone();
+
+  picker.setBoard(null);
+  if (playerBoard) { playerBoard.removeFromScene(scene); playerBoard.dispose(); }
+  if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
+  playerBoard = null; enemyBoard = null;
+
+  playerBoard = new Board(0.50, 10, { baseColor: 0x0d1b2a, shipColor: 0x5dade2, showShips: true });
+  enemyBoard  = new Board(0.50, 10, { baseColor: 0x1b1430, shipColor: 0xaa66ff, showShips: false });
+
+  if (keepPlayerM) playerBoard.placeAtMatrix(keepPlayerM);
+  if (keepEnemyM)  enemyBoard.placeAtMatrix(keepEnemyM);
+
+  playerBoard.addToScene(scene);
+  enemyBoard.addToScene(scene);
+
+  aiCandidates = null;
+  fleet = new FleetManager([5,4,3,3,2]);
+  setPhase("setup");
+  setTurn("player");
+  picker.setBoard(playerBoard);
+  playerBoard.clearGhost?.();
+  statusEl.textContent = "Neues Spiel: Schiffe setzen (linkes Brett). Trigger platziert, Squeeze rotiert.";
+  updateFleetUI();
 }
