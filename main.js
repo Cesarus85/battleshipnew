@@ -1,5 +1,5 @@
 // AR + Diagnose + Zielmodus + Trigger-Placement + Setup + KI-Runden + AUTO-START
-// + Audio-Earcons + Haptik + Treffer-Animationen + präziser Select-Ray
+// + Audio/Haptik/FX + präziser Select-Ray + GameOver-Schild & Auto-Setup
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { Board } from "./board.js";
 import { Picker } from "./picking.js";
@@ -28,6 +28,9 @@ const btnUndo = document.getElementById("btnUndo");
 const btnStartGame = document.getElementById("btnStartGame"); // optional (evtl. hidden)
 const turnEl = document.getElementById("turn");
 
+// --- Konstante: Wartezeit bis Auto-Setup (ms)
+const GAMEOVER_DELAY = 3500;
+
 let renderer, scene, camera;
 let xrSession = null;
 let localRefSpace = null;
@@ -41,6 +44,10 @@ let prevTime = null;
 // Zwei Boards
 let playerBoard = null;
 let enemyBoard = null;
+
+// Merker für Board-Positionen (damit wir nach GameOver direkt zurück ins Setup können)
+let lastPlayerMatrix = null;
+let lastEnemyMatrix = null;
 
 let picker = null;
 let fleet = null;
@@ -61,6 +68,10 @@ let aiCandidates = null;
 // Audio/Haptik
 let audioCtx = null, masterGain = null;
 let audioEnabled = true, hapticsEnabled = true;
+
+// GameOver-Schild
+let bannerMesh = null;
+let gameoverTimer = null;
 
 initGL();
 wireUI();
@@ -205,6 +216,8 @@ function onSessionEnd() {
   btnReset.disabled = !!playerBoard;
   aimInfoEl.textContent = "";
   setPhase("placement");
+  clearGameoverTimer();
+  hideBanner();
 }
 
 function onInputSourcesChange() {
@@ -249,6 +262,11 @@ function onXRFrame(time, frame) {
   playerBoard?.updateEffects?.(dt);
   enemyBoard?.updateEffects?.(dt);
 
+  // Banner immer zur Kamera drehen (Billboard)
+  if (bannerMesh) {
+    bannerMesh.lookAt(camera.position);
+  }
+
   renderer.render(scene, camera);
 }
 
@@ -270,7 +288,7 @@ function updateHover() {
   }
 }
 
-/* ---------- Select: präziser Ray + Audio/Haptik/FX ---------- */
+/* ---------- Select ---------- */
 function onSelect(e) {
   initAudio();
 
@@ -290,7 +308,6 @@ function onSelect(e) {
     lastPickEl.textContent = playerBoard.cellLabel(row, col);
     updateFleetUI();
     playerBoard.clearGhost();
-    // leichte Bestätigung
     playEarcon("placeShip"); buzzFromEvent(e, 0.15, 40);
 
     // Auto-Start
@@ -352,6 +369,10 @@ function placeBoardsFromReticle() {
   enemyBoard = new Board(0.50, 10, { baseColor: 0x1b1430, shipColor: 0xaa66ff, showShips: false });
   enemyBoard.placeAtMatrix(enemyM);
   enemyBoard.addToScene(scene);
+
+  // Matritzen merken, um später ohne Reticle neu zu starten
+  lastPlayerMatrix = playerBoard.group.matrix.clone();
+  lastEnemyMatrix  = enemyBoard.group.matrix.clone();
 
   picker.setBoard(playerBoard);
 
@@ -425,17 +446,30 @@ function aiTurn() {
   statusEl.textContent += " Dein Zug.";
 }
 
-/* ---------- Game Over ---------- */
+/* ---------- Game Over: Schild + Auto-Setup ---------- */
 function gameOver(winner) {
   setPhase("gameover");
   picker.setBoard(null);
-  const msg = (winner === "player") ? "Du hast gewonnen! 🎉" : "KI hat gewonnen.";
-  statusEl.textContent = msg + " Tippe 'Zurücksetzen' für ein neues Spiel.";
+  const msg = (winner === "player") ? "GEWONNEN!" : "VERLOREN";
+  statusEl.textContent = (winner === "player" ? "Du hast gewonnen! 🎉" : "KI hat gewonnen.") + " Neues Spiel wird vorbereitet …";
   playEarcon(winner === "player" ? "win" : "lose");
+  showBanner(msg, winner === "player" ? "#19b26b" : "#e74c3c");
+
+  clearGameoverTimer();
+  gameoverTimer = setTimeout(() => {
+    hideBanner();
+    returnToSetupSameSpot();
+  }, GAMEOVER_DELAY);
+}
+
+function clearGameoverTimer() {
+  if (gameoverTimer) { clearTimeout(gameoverTimer); gameoverTimer = null; }
 }
 
 /* ---------- Reset ---------- */
 function resetAll() {
+  clearGameoverTimer();
+  hideBanner();
   picker.setBoard(null);
   if (playerBoard) { playerBoard.removeFromScene(scene); playerBoard.dispose(); }
   if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
@@ -443,6 +477,7 @@ function resetAll() {
   playerBoard = null; enemyBoard = null;
   fleet = null; aiCandidates = null;
   orientation = "H";
+  lastPlayerMatrix = null; lastEnemyMatrix = null;
   hoverCellEl.textContent = "–";
   lastPickEl.textContent = "–";
   setPhase("placement");
@@ -547,7 +582,7 @@ function randomizeFleet(board, lengths) {
   }
 }
 
-/* ---------- Audio: Mini-Synth (ohne Dateien) ---------- */
+/* ---------- Audio ---------- */
 function initAudio() {
   try {
     if (!audioEnabled) return;
@@ -607,4 +642,123 @@ function buzzFromEvent(e, intensity=0.5, durationMs=80) {
       h?.pulse?.(Math.min(1, Math.max(0, intensity)), Math.max(1, durationMs));
     }
   } catch {}
+}
+
+/* ---------- 3D GameOver-Schild ---------- */
+function showBanner(text = "GEWONNEN!", color = "#19b26b") {
+  hideBanner();
+
+  // Position: Mitte zwischen beiden Brettern, leicht erhöht
+  const p1 = new THREE.Vector3(); playerBoard.group.getWorldPosition(p1);
+  const p2 = new THREE.Vector3(); enemyBoard.group.getWorldPosition(p2);
+  const mid = p1.clone().add(p2).multiplyScalar(0.5); mid.y += 0.30;
+
+  bannerMesh = makeLabelPlane(text, color);
+  bannerMesh.position.copy(mid);
+  scene.add(bannerMesh);
+}
+
+function hideBanner() {
+  if (!bannerMesh) return;
+  scene.remove(bannerMesh);
+  // Ressourcen entsorgen
+  if (bannerMesh.material?.map) bannerMesh.material.map.dispose();
+  bannerMesh.material?.dispose?.();
+  bannerMesh.geometry?.dispose();
+  bannerMesh = null;
+}
+
+// Erzeugt eine Canvas-Textur + Plane als Schild
+function makeLabelPlane(text, colorHex = "#19b26b") {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024; canvas.height = 384;
+  const ctx = canvas.getContext("2d");
+
+  // Hintergrund (rundes Rechteck, halbtransparent)
+  const bg = "rgba(0,0,0,0.65)";
+  roundRect(ctx, 16, 16, canvas.width-32, canvas.height-32, 32, bg);
+
+  // Text
+  ctx.fillStyle = colorHex;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  // fette, große Schrift (Fallbacks für Quest)
+  ctx.font = "bold 180px system-ui, -apple-system, Roboto, Arial, sans-serif";
+  ctx.fillText(text, canvas.width/2, canvas.height/2 + 10);
+
+  // leichte Kontur
+  ctx.strokeStyle = "rgba(255,255,255,0.15)";
+  ctx.lineWidth = 6;
+  ctx.strokeText(text, canvas.width/2, canvas.height/2 + 10);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.anisotropy = 4;
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+  const widthMeters = 0.80, heightMeters = widthMeters * (canvas.height/canvas.width);
+  const geo = new THREE.PlaneGeometry(widthMeters, heightMeters);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = 10; // oberhalb von allem
+  return mesh;
+}
+
+function roundRect(ctx, x, y, w, h, r, fillStyle) {
+  const rr = Math.min(r, w*0.5, h*0.5);
+  ctx.beginPath();
+  ctx.moveTo(x+rr, y);
+  ctx.arcTo(x+w, y, x+w, y+h, rr);
+  ctx.arcTo(x+w, y+h, x, y+h, rr);
+  ctx.arcTo(x, y+h, x, y, rr);
+  ctx.arcTo(x, y, x+w, y, rr);
+  ctx.closePath();
+  ctx.fillStyle = fillStyle;
+  ctx.fill();
+}
+
+/* ---------- Zurück ins Setup (ohne neu platzieren) ---------- */
+function returnToSetupSameSpot() {
+  // Bretter neu erzeugen, gleiche Pose behalten
+  const keepPlayerM = lastPlayerMatrix?.clone();
+  const keepEnemyM  = lastEnemyMatrix?.clone();
+
+  // Aufräumen
+  picker.setBoard(null);
+  if (playerBoard) { playerBoard.removeFromScene(scene); playerBoard.dispose(); }
+  if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
+  playerBoard = null; enemyBoard = null;
+
+  // Neu erstellen
+  playerBoard = new Board(0.50, 10, { baseColor: 0x0d1b2a, shipColor: 0x5dade2, showShips: true });
+  enemyBoard  = new Board(0.50, 10, { baseColor: 0x1b1430, shipColor: 0xaa66ff, showShips: false });
+
+  if (keepPlayerM) playerBoard.placeAtMatrix(keepPlayerM);
+  if (keepEnemyM)  enemyBoard.placeAtMatrix(keepEnemyM);
+
+  playerBoard.addToScene(scene);
+  enemyBoard.addToScene(scene);
+
+  // UI/State zurücksetzen
+  aiCandidates = null;
+  fleet = new FleetManager([5,4,3,3,2]);
+  setPhase("setup");
+  setTurn("player");
+  picker.setBoard(playerBoard);
+  playerBoard.clearGhost?.();
+  statusEl.textContent = "Neues Spiel: Schiffe setzen (linkes Brett). Trigger platziert, Squeeze rotiert.";
+  updateFleetUI();
+}
+
+/* ---------- UI Helfer ---------- */
+function updateFleetUI() {
+  phaseEl.textContent = phase + (phase === "setup" ? ` (Ori: ${orientation})` : "");
+  if (!fleet) { fleetEl.innerHTML = ""; btnUndo.disabled = true; if (btnStartGame) btnStartGame.disabled = true; return; }
+  const remain = fleet.summary();
+  const orderStr = fleet.order.length ? `Als Nächstes: ${fleet.order[0]}er` : "–";
+  const parts = [];
+  for (const L of [5,4,3,2]) {
+    const n = remain[L] || 0;
+    parts.push(`<span class="pill">${L}er × ${n}</span>`);
+  }
+  fleetEl.innerHTML = `${parts.join(" ")} &nbsp; | &nbsp; <strong>${orderStr}</strong>`;
+  btnUndo.disabled = fleet.placed.length === 0;
+  if (btnStartGame) btnStartGame.disabled = !fleet.complete();
 }
