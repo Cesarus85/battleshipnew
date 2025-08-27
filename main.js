@@ -1,4 +1,5 @@
-// AR + Diagnose + Zielmodus + Trigger-Placement + Setup + KI-Runden (Random) + AUTO-START
+// AR + Diagnose + Zielmodus + Trigger-Placement + Setup + KI-Runden + AUTO-START
+// + Audio-Earcons + Haptik + Treffer-Animationen + präziser Select-Ray
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { Board } from "./board.js";
 import { Picker } from "./picking.js";
@@ -24,8 +25,7 @@ const phaseEl = document.getElementById("phase");
 const fleetEl = document.getElementById("fleet");
 const btnRotate = document.getElementById("btnRotate");
 const btnUndo = document.getElementById("btnUndo");
-// Hinweis: Button kann fehlen, daher defensiv:
-const btnStartGame = document.getElementById("btnStartGame");
+const btnStartGame = document.getElementById("btnStartGame"); // optional (evtl. hidden)
 const turnEl = document.getElementById("turn");
 
 let renderer, scene, camera;
@@ -35,6 +35,8 @@ let viewerSpace = null;
 let hitTestSource = null;
 let reticle = null;
 let lastHitPose = null;
+
+let prevTime = null;
 
 // Zwei Boards
 let playerBoard = null;
@@ -46,7 +48,7 @@ let fleet = null;
 // Zielmodus: "gaze" | "controller"
 let aimMode = "gaze";
 
-// Game-Phase: "placement" -> Bretter platzieren; "setup" -> eigene Schiffe; "play" -> Spiel; "gameover"
+// Game-Phase
 let phase = "placement";
 
 // Setup-State
@@ -54,7 +56,11 @@ let orientation = "H"; // "H" oder "V"
 
 // Runden-State
 let turn = "player"; // "player" | "ai"
-let aiCandidates = null; // Array verbleibender unbeschossener Zellen auf Spieler-Brett
+let aiCandidates = null;
+
+// Audio/Haptik
+let audioCtx = null, masterGain = null;
+let audioEnabled = true, hapticsEnabled = true;
 
 initGL();
 wireUI();
@@ -96,8 +102,8 @@ function onResize() {
 }
 
 function wireUI() {
-  btnStart.addEventListener("click", () => startAR("regular"));
-  btnStartSafe.addEventListener("click", () => startAR("safe"));
+  btnStart.addEventListener("click", () => { initAudio(); startAR("regular"); });
+  btnStartSafe.addEventListener("click", () => { initAudio(); startAR("safe"); });
   btnReset.addEventListener("click", resetAll);
 
   btnAimGaze.addEventListener("click", () => setAimMode("gaze"));
@@ -108,10 +114,9 @@ function wireUI() {
     statusEl.textContent = "Quest-Browser → Seiteneinstellungen: 'Passthrough/AR' & 'Bewegung/Tracking' erlauben. Falls abgelehnt: Berechtigungen zurücksetzen und Seite neu laden.";
   });
 
-  btnRotate.addEventListener("click", rotateShip);
-  btnUndo.addEventListener("click", undoShip);
-  // Button existiert evtl. nicht mehr – nur verbinden, wenn vorhanden:
-  if (btnStartGame) btnStartGame.addEventListener("click", startGame);
+  btnRotate.addEventListener("click", () => { initAudio(); rotateShip(); });
+  btnUndo.addEventListener("click", () => { initAudio(); undoShip(); });
+  if (btnStartGame) btnStartGame.addEventListener("click", () => { initAudio(); startGame(); });
 }
 
 function setAimMode(mode) {
@@ -144,18 +149,10 @@ async function diagnose() {
 }
 
 async function startAR(mode = "regular") {
-  if (!navigator.xr) {
-    statusEl.textContent = "WebXR nicht verfügbar. Bitte Meta/Quest-Browser verwenden.";
-    await diagnose();
-    return;
-  }
+  if (!navigator.xr) { statusEl.textContent = "WebXR nicht verfügbar. Bitte Meta/Quest-Browser verwenden."; await diagnose(); return; }
   try {
     const supported = await navigator.xr.isSessionSupported?.("immersive-ar");
-    if (supported === false) {
-      statusEl.textContent = "Dieser Browser unterstützt 'immersive-ar' nicht. Bitte Quest-Browser updaten.";
-      await diagnose();
-      return;
-    }
+    if (supported === false) { statusEl.textContent = "Dieser Browser unterstützt 'immersive-ar' nicht. Bitte Quest-Browser updaten."; await diagnose(); return; }
     const configs = mode === "safe"
       ? [
           { note: "SAFE: minimale Features", init: { requiredFeatures: [], optionalFeatures: [] } },
@@ -165,15 +162,10 @@ async function startAR(mode = "regular") {
           { note: "regular: hit-test + optional dom-overlay", init: { requiredFeatures: ["hit-test"], optionalFeatures: ["dom-overlay", "anchors", "hand-tracking"], domOverlay: { root: overlay } } },
           { note: "regular-fallback: hit-test (kein dom-overlay)", init: { requiredFeatures: ["hit-test"], optionalFeatures: ["anchors", "hand-tracking"] } },
         ];
-
     let lastErr = null;
     for (const cfg of configs) {
-      try {
-        xrSession = await navigator.xr.requestSession("immersive-ar", cfg.init);
-        console.log("[XR] gestartet mit:", cfg.note);
-        statusEl.textContent = `AR gestartet (${cfg.note}).`;
-        break;
-      } catch (e) { lastErr = e; }
+      try { xrSession = await navigator.xr.requestSession("immersive-ar", cfg.init); statusEl.textContent = `AR gestartet (${cfg.note}).`; break; }
+      catch (e) { lastErr = e; }
     }
     if (!xrSession) throw lastErr || new Error("requestSession fehlgeschlagen (unbekannt)");
 
@@ -188,18 +180,14 @@ async function startAR(mode = "regular") {
     localRefSpace = await xrSession.requestReferenceSpace("local");
     viewerSpace = await xrSession.requestReferenceSpace("viewer");
 
-    try {
-      hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
-      statusEl.textContent += " | hit-test aktiv.";
-    } catch {
-      hitTestSource = null;
-      statusEl.textContent += " | hit-test NICHT verfügbar.";
-    }
+    try { hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace }); statusEl.textContent += " | hit-test aktiv."; }
+    catch { hitTestSource = null; statusEl.textContent += " | hit-test NICHT verfügbar."; }
 
     btnStart.disabled = true; btnStartSafe.disabled = true;
     btnReset.disabled = true;
     setAimMode(aimMode);
     setPhase("placement");
+    prevTime = null;
     renderer.setAnimationLoop(onXRFrame);
   } catch (err) {
     statusEl.textContent = `AR-Start fehlgeschlagen: ${err?.name || "Error"} – ${err?.message || err}`;
@@ -229,6 +217,10 @@ function onInputSourcesChange() {
 
 function onXRFrame(time, frame) {
   if (!frame) return;
+  // delta
+  if (prevTime == null) prevTime = time;
+  const dt = Math.min(0.1, (time - prevTime) / 1000);
+  prevTime = time;
 
   if (phase === "placement") {
     const results = hitTestSource ? frame.getHitTestResults(hitTestSource) : [];
@@ -247,17 +239,15 @@ function onXRFrame(time, frame) {
       const L = fleet.currentLength();
       const valid = playerBoard.canPlaceShip(cell.row, cell.col, L, orientation);
       playerBoard.showGhost(cell.row, cell.col, L, orientation, valid);
-    } else if (playerBoard) {
-      playerBoard.clearGhost();
-    }
+    } else if (playerBoard) { playerBoard.clearGhost(); }
   } else if (phase === "play") {
-    if (turn === "player") {
-      picker.setBoard(enemyBoard);
-      updateHover();
-    } else {
-      picker.setBoard(null);
-    }
+    if (turn === "player") { picker.setBoard(enemyBoard); updateHover(); }
+    else { picker.setBoard(null); }
   }
+
+  // FX updaten
+  playerBoard?.updateEffects?.(dt);
+  enemyBoard?.updateEffects?.(dt);
 
   renderer.render(scene, camera);
 }
@@ -280,64 +270,58 @@ function updateHover() {
   }
 }
 
-// Vorher: function onSelect() { ... }
-// Nachher:
+/* ---------- Select: präziser Ray + Audio/Haptik/FX ---------- */
 function onSelect(e) {
-  if (phase === "placement") { 
-    placeBoardsFromReticle(); 
-    return; 
-  }
+  initAudio();
+
+  if (phase === "placement") { placeBoardsFromReticle(); buzzFromEvent(e, 0.2, 30); playEarcon("placeBoard"); return; }
 
   if (phase === "setup") {
-    // Zelle exakt aus dem Event-Ray berechnen; Fallback: Hover
     const cellEvt = getCellFromSelectEvent(e, playerBoard) || picker.hoverCell;
-    if (!cellEvt) { 
-      statusEl.textContent = "Kein gültiges Feld getroffen – minimal nach unten neigen.";
-      return; 
-    }
+    if (!cellEvt) { statusEl.textContent = "Kein gültiges Feld getroffen – minimal nach unten neigen."; playEarcon("error"); buzzFromEvent(e, 0.1, 30); return; }
     const { row, col } = cellEvt;
 
     const L = fleet.currentLength(); if (!L) return;
     const ok = playerBoard.canPlaceShip(row, col, L, orientation);
-    if (!ok) { statusEl.textContent = "Ungültige Position (außerhalb oder Kollision)."; return; }
+    if (!ok) { statusEl.textContent = "Ungültige Position (außerhalb oder Kollision)."; playEarcon("error"); buzzFromEvent(e, 0.1, 40); return; }
 
     playerBoard.placeShip(row, col, L, orientation);
     fleet.advance(row, col, L, orientation);
     lastPickEl.textContent = playerBoard.cellLabel(row, col);
     updateFleetUI();
     playerBoard.clearGhost();
+    // leichte Bestätigung
+    playEarcon("placeShip"); buzzFromEvent(e, 0.15, 40);
 
-    // Auto-Start bei kompletter Flotte (falls du das bereits drin hast, lassen)
+    // Auto-Start
     if (fleet.complete()) {
       statusEl.textContent = "Flotte komplett – Spiel startet …";
-      setTimeout(() => { if (phase === "setup") startGame(); }, 250);
+      playEarcon("start");
+      setTimeout(() => { if (phase === "setup") startGame(); }, 300);
     }
     return;
   }
 
   if (phase === "play") {
-    if (turn !== "player") { 
-      statusEl.textContent = "KI ist dran …"; 
-      return; 
-    }
-    // Zelle aus Event-Ray; Fallback: Hover
+    if (turn !== "player") { statusEl.textContent = "KI ist dran …"; playEarcon("error"); return; }
     const cellEvt = getCellFromSelectEvent(e, enemyBoard) || picker.hoverCell;
-    if (!cellEvt) { 
-      statusEl.textContent = "Kein gültiges Feld getroffen – minimal nach unten neigen.";
-      return; 
-    }
+    if (!cellEvt) { statusEl.textContent = "Kein gültiges Feld getroffen – minimal nach unten neigen."; playEarcon("error"); buzzFromEvent(e, 0.1, 30); return; }
     const { row, col } = cellEvt;
 
     const res = enemyBoard.receiveShot(row, col);
-    if (res.result === "repeat") { 
-      statusEl.textContent = "Schon beschossen. Wähle eine andere Zelle."; 
-      return; 
-    }
+    if (res.result === "repeat") { statusEl.textContent = "Schon beschossen. Wähle eine andere Zelle."; playEarcon("error"); buzzFromEvent(e, 0.1, 40); return; }
 
     if (res.result === "hit" || res.result === "sunk") {
-      enemyBoard.markCell(row, col, 0x2ecc71, 0.9); // grün
+      enemyBoard.markCell(row, col, 0x2ecc71, 0.9);
+      enemyBoard.pulseAtCell(row, col, 0x2ecc71, 0.6);
+      playEarcon(res.result === "sunk" ? "sunk" : "hit");
+      buzzFromEvent(e, res.result === "sunk" ? 0.9 : 0.6, res.result === "sunk" ? 220 : 120);
+      if (res.result === "sunk" && res.ship) enemyBoard.flashShip(res.ship, 1.0);
     } else {
-      enemyBoard.markCell(row, col, 0xd0d5de, 0.9); // grau
+      enemyBoard.markCell(row, col, 0xd0d5de, 0.9);
+      enemyBoard.pulseAtCell(row, col, 0xd0d5de, 0.5);
+      playEarcon("miss");
+      buzzFromEvent(e, 0.2, 60);
     }
     lastPickEl.textContent = enemyBoard.cellLabel(row, col);
 
@@ -349,7 +333,7 @@ function onSelect(e) {
 }
 
 function onSqueeze() {
-  if (phase === "setup") rotateShip();
+  if (phase === "setup") { rotateShip(); playEarcon("rotate"); }
 }
 
 /* ---------- Boards platzieren ---------- */
@@ -380,6 +364,7 @@ function placeBoardsFromReticle() {
   statusEl.textContent = "Schiffe setzen (linkes Brett): Ziel → Trigger, Squeeze rotiert (H/V).";
 }
 
+/* ---------- Spielsteuerung ---------- */
 function rotateShip() {
   orientation = (orientation === "H") ? "V" : "H";
   updateFleetUI();
@@ -395,14 +380,13 @@ function undoShip() {
 
 function startGame() {
   if (!fleet || !playerBoard || !enemyBoard) return;
-  // KI-Flotte zufällig setzen
   randomizeFleet(enemyBoard, [5,4,3,3,2]);
-
   setPhase("play");
   setTurn("player");
   picker.setBoard(enemyBoard);
   playerBoard.clearGhost();
   statusEl.textContent = "Spielphase: Ziel auf das rechte Brett und Trigger drücken.";
+  playEarcon("start");
 }
 
 function setTurn(t) {
@@ -423,11 +407,14 @@ function aiTurn() {
 
   const res = playerBoard.receiveShot(row, col);
   if (res.result === "hit" || res.result === "sunk") {
-    playerBoard.markCell(row, col, 0xe74c3c, 0.95); // rot
-    statusEl.textContent = `KI trifft: ${playerBoard.cellLabel(row, col)}!`;
+    playerBoard.markCell(row, col, 0xe74c3c, 0.95);
+    playerBoard.pulseAtCell(row, col, 0xe74c3c, 0.6);
+    if (res.result === "sunk" && res.ship) playerBoard.flashShip(res.ship, 1.0);
+    playEarcon(res.result === "sunk" ? "sunk_enemy" : "hit_enemy");
   } else if (res.result === "miss") {
-    playerBoard.markCell(row, col, 0x95a5a6, 0.9); // grau
-    statusEl.textContent = `KI verfehlt: ${playerBoard.cellLabel(row, col)}.`;
+    playerBoard.markCell(row, col, 0x95a5a6, 0.9);
+    playerBoard.pulseAtCell(row, col, 0x95a5a6, 0.5);
+    playEarcon("miss_enemy");
   } else {
     return setTimeout(aiTurn, 0);
   }
@@ -444,6 +431,7 @@ function gameOver(winner) {
   picker.setBoard(null);
   const msg = (winner === "player") ? "Du hast gewonnen! 🎉" : "KI hat gewonnen.";
   statusEl.textContent = msg + " Tippe 'Zurücksetzen' für ein neues Spiel.";
+  playEarcon(winner === "player" ? "win" : "lose");
 }
 
 /* ---------- Reset ---------- */
@@ -461,6 +449,7 @@ function resetAll() {
   setTurn("player");
   btnReset.disabled = true;
   statusEl.textContent = "Zurückgesetzt. Richte Reticle auf die Fläche und drücke Trigger zum Platzieren.";
+  playEarcon("reset");
 }
 
 /* ---------- UI Helfer ---------- */
@@ -476,11 +465,10 @@ function updateFleetUI() {
   }
   fleetEl.innerHTML = `${parts.join(" ")} &nbsp; | &nbsp; <strong>${orderStr}</strong>`;
   btnUndo.disabled = fleet.placed.length === 0;
-  // Button existiert evtl. nicht – und ist sowieso nicht mehr im Flow:
   if (btnStartGame) btnStartGame.disabled = !fleet.complete();
 }
 
-/* ---------- Mathe & XR Helpers ---------- */
+/* ---------- XR Helpers ---------- */
 function pickActiveInputSource() {
   if (!xrSession) return null;
   let right = null, left = null, any = null;
@@ -494,6 +482,22 @@ function pickActiveInputSource() {
   return right || left || any;
 }
 
+function getCellFromSelectEvent(e, board) {
+  try {
+    if (!e || !board || !localRefSpace) return null;
+    const frame = e.frame || renderer.xr.getFrame?.();
+    if (!frame || !e.inputSource?.targetRaySpace) return null;
+    const pose = frame.getPose(e.inputSource.targetRaySpace, localRefSpace);
+    if (!pose) return null;
+    const m = new THREE.Matrix4().fromArray(pose.transform.matrix ?? matrixFromTransform(pose.transform));
+    const origin = new THREE.Vector3().setFromMatrixPosition(m);
+    const q = new THREE.Quaternion().setFromRotationMatrix(m);
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(q).normalize();
+    const hit = board.raycastCell(origin, dir);
+    return hit.hit ? { row: hit.row, col: hit.col } : null;
+  } catch { return null; }
+}
+
 function originDirFromXRPose(pose) {
   const m = new THREE.Matrix4().fromArray(pose.transform.matrix ?? matrixFromTransform(pose.transform));
   const origin = new THREE.Vector3().setFromMatrixPosition(m);
@@ -502,9 +506,7 @@ function originDirFromXRPose(pose) {
   return { origin, dir };
 }
 
-function matrixFromTransform(t) {
-  return (new XRRigidTransform(t.position, t.orientation)).matrix;
-}
+function matrixFromTransform(t) { return (new XRRigidTransform(t.position, t.orientation)).matrix; }
 
 function offsetLocalXZ(baseMatrix, dx, dz) {
   const pos = new THREE.Vector3();
@@ -518,11 +520,7 @@ function offsetLocalXZ(baseMatrix, dx, dz) {
   return out;
 }
 
-function allCells(n) {
-  const arr = [];
-  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) arr.push([r, c]);
-  return arr;
-}
+function allCells(n) { const arr = []; for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) arr.push([r, c]); return arr; }
 
 /* ---------- KI-Flottenplatzierung ---------- */
 function randomizeFleet(board, lengths) {
@@ -548,24 +546,65 @@ function randomizeFleet(board, lengths) {
     }
   }
 }
-// Nutzt den echten Ray des Devices, das den Event ausgelöst hat
-function getCellFromSelectEvent(e, board) {
+
+/* ---------- Audio: Mini-Synth (ohne Dateien) ---------- */
+function initAudio() {
   try {
-    if (!e || !board || !localRefSpace) return null;
-    const frame = e.frame || renderer.xr.getFrame?.(); // falls verfügbar
-    if (!frame || !e.inputSource?.targetRaySpace) return null;
+    if (!audioEnabled) return;
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.25;
+      masterGain.connect(audioCtx.destination);
+    } else if (audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
+  } catch {}
+}
 
-    const pose = frame.getPose(e.inputSource.targetRaySpace, localRefSpace);
-    if (!pose) return null;
+function tone(freq=440, type="sine", dur=0.12, vol=0.25) {
+  if (!audioCtx || !audioEnabled) return;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = type; osc.frequency.value = freq;
+  const now = audioCtx.currentTime;
+  g.gain.setValueAtTime(0, now);
+  g.gain.linearRampToValueAtTime(vol, now + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.02, dur));
+  osc.connect(g).connect(masterGain);
+  osc.start(now);
+  osc.stop(now + dur + 0.05);
+}
 
-    const m = new THREE.Matrix4().fromArray(pose.transform.matrix ?? matrixFromTransform(pose.transform));
-    const origin = new THREE.Vector3().setFromMatrixPosition(m);
-    const q = new THREE.Quaternion().setFromRotationMatrix(m);
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(q).normalize();
+function chord(freqs=[440,550,660], dur=0.35, vol=0.18) {
+  if (!audioCtx || !audioEnabled) return;
+  freqs.forEach((f,i)=> tone(f, i%2 ? "triangle":"sine", dur, vol));
+}
 
-    const hit = board.raycastCell(origin, dir);
-    return hit.hit ? { row: hit.row, col: hit.col } : null;
-  } catch {
-    return null;
+function playEarcon(kind) {
+  switch(kind) {
+    case "placeBoard": tone(300, "sine", 0.08, 0.2); break;
+    case "placeShip":  tone(520, "triangle", 0.08, 0.2); tone(780,"triangle",0.06,0.12); break;
+    case "rotate":     tone(600, "sine", 0.05, 0.16); break;
+    case "start":      tone(500,"sine",0.08,0.22); setTimeout(()=>tone(700,"sine",0.08,0.2),80); break;
+    case "hit":        tone(220,"sine",0.14,0.26); setTimeout(()=>tone(140,"sine",0.12,0.22),50); break;
+    case "sunk":       chord([330,415,495],0.45,0.22); break;
+    case "miss":       tone(820,"triangle",0.06,0.16); break;
+    case "hit_enemy":  tone(260,"sine",0.12,0.22); break;
+    case "miss_enemy": tone(700,"triangle",0.05,0.14); break;
+    case "error":      tone(180,"square",0.05,0.18); break;
+    case "win":        chord([392,494,587],0.55,0.24); break;   // G B D
+    case "lose":       tone(160,"sine",0.25,0.22); break;
+    case "reset":      tone(480,"sine",0.05,0.18); break;
   }
+}
+
+/* ---------- Haptik ---------- */
+function buzzFromEvent(e, intensity=0.5, durationMs=80) {
+  if (!hapticsEnabled || !e?.inputSource?.gamepad?.hapticActuators) return;
+  try {
+    for (const h of e.inputSource.gamepad.hapticActuators) {
+      h?.pulse?.(Math.min(1, Math.max(0, intensity)), Math.max(1, durationMs));
+    }
+  } catch {}
 }
