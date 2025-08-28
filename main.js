@@ -1,10 +1,12 @@
-// AR + Diagnose + Zielmodus + Trigger-Placement + Setup + KI-Runden (Hunt/Target) + AUTO-START
-// + Audio-Earcons + Haptik + Treffer-Animationen + präziser Select-Ray
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { Board } from "./board.js";
 import { Picker } from "./picking.js";
 import { FleetManager } from "./ships.js";
 
+// ---- Regelwerk ----
+const RULES = { noTouching: true }; // Option A: Schiffe dürfen sich NICHT berühren (auch diagonal)
+
+// DOM
 const canvas = document.getElementById("xr-canvas");
 const overlay = document.getElementById("overlay");
 const statusEl = document.getElementById("status");
@@ -19,15 +21,14 @@ const aimInfoEl = document.getElementById("aimInfo");
 const debugEl = document.getElementById("debug");
 const btnDiag = document.getElementById("btnDiag");
 const btnPerms = document.getElementById("btnPerms");
-
-// Setup UI
 const phaseEl = document.getElementById("phase");
 const fleetEl = document.getElementById("fleet");
 const btnRotate = document.getElementById("btnRotate");
 const btnUndo = document.getElementById("btnUndo");
-const btnStartGame = document.getElementById("btnStartGame"); // optional (evtl. hidden)
+const btnStartGame = document.getElementById("btnStartGame");
 const turnEl = document.getElementById("turn");
 
+// GL/XR
 let renderer, scene, camera;
 let xrSession = null;
 let localRefSpace = null;
@@ -35,29 +36,19 @@ let viewerSpace = null;
 let hitTestSource = null;
 let reticle = null;
 let lastHitPose = null;
-
 let prevTime = null;
 
-// Zwei Boards
+// Game State
 let playerBoard = null;
 let enemyBoard = null;
-
 let picker = null;
 let fleet = null;
-
-// Zielmodus: "gaze" | "controller"
 let aimMode = "gaze";
-
-// Game-Phase
 let phase = "placement";
+let orientation = "H";
+let turn = "player";
 
-// Setup-State
-let orientation = "H"; // "H" oder "V"
-
-// Runden-State
-let turn = "player"; // "player" | "ai"
-
-// --- NEU: KI-Zustand (Hunt/Target) ---
+// KI State
 let aiState = null;
 
 // Audio/Haptik
@@ -81,7 +72,7 @@ function initGL() {
   const ambient = new THREE.HemisphereLight(0xffffff, 0x222244, 0.8);
   scene.add(ambient);
 
-  // Reticle (für Platzierung)
+  // Reticle
   const ringGeo = new THREE.RingGeometry(0.07, 0.075, 48);
   ringGeo.rotateX(-Math.PI / 2);
   const ringMat = new THREE.MeshBasicMaterial({ color: 0x7bdcff, transparent: true, opacity: 0.9 });
@@ -219,7 +210,6 @@ function onInputSourcesChange() {
 
 function onXRFrame(time, frame) {
   if (!frame) return;
-  // delta
   if (prevTime == null) prevTime = time;
   const dt = Math.min(0.1, (time - prevTime) / 1000);
   prevTime = time;
@@ -247,7 +237,6 @@ function onXRFrame(time, frame) {
     else { picker.setBoard(null); }
   }
 
-  // FX updaten
   playerBoard?.updateEffects?.(dt);
   enemyBoard?.updateEffects?.(dt);
 
@@ -272,7 +261,6 @@ function updateHover() {
   }
 }
 
-/* ---------- Select: präziser Ray + Audio/Haptik/FX ---------- */
 function onSelect(e) {
   initAudio();
 
@@ -285,17 +273,15 @@ function onSelect(e) {
 
     const L = fleet.currentLength(); if (!L) return;
     const ok = playerBoard.canPlaceShip(row, col, L, orientation);
-    if (!ok) { statusEl.textContent = "Ungültige Position (außerhalb oder Kollision)."; playEarcon("error"); buzzFromEvent(e, 0.1, 40); return; }
+    if (!ok) { statusEl.textContent = "Ungültige Position (außerhalb, Kollision oder Berührung)."; playEarcon("error"); buzzFromEvent(e, 0.1, 40); return; }
 
     playerBoard.placeShip(row, col, L, orientation);
     fleet.advance(row, col, L, orientation);
     lastPickEl.textContent = playerBoard.cellLabel(row, col);
     updateFleetUI();
     playerBoard.clearGhost();
-    // leichte Bestätigung
     playEarcon("placeShip"); buzzFromEvent(e, 0.15, 40);
 
-    // Auto-Start
     if (fleet.complete()) {
       statusEl.textContent = "Flotte komplett – Spiel startet …";
       playEarcon("start");
@@ -320,7 +306,7 @@ function onSelect(e) {
       buzzFromEvent(e, res.result === "sunk" ? 0.9 : 0.6, res.result === "sunk" ? 220 : 120);
       if (res.result === "sunk" && res.ship) {
         enemyBoard.flashShip(res.ship, 1.0);
-        // NEU: umliegende Felder beim Gegner markieren (Spieler-Ansicht)
+        // Regel: umliegende Felder sind frei (No-Touching)
         markAroundShip(enemyBoard, res.ship, true);
       }
     } else {
@@ -342,20 +328,19 @@ function onSqueeze() {
   if (phase === "setup") { rotateShip(); playEarcon("rotate"); }
 }
 
-/* ---------- Boards platzieren ---------- */
 function placeBoardsFromReticle() {
   if (!lastHitPose || playerBoard || enemyBoard) return;
 
   const baseM = new THREE.Matrix4().fromArray(lastHitPose.matrix ?? matrixFromTransform(lastHitPose));
 
-  playerBoard = new Board(0.50, 10, { baseColor: 0x0d1b2a, shipColor: 0x5dade2, showShips: true });
+  playerBoard = new Board(0.50, 10, { baseColor: 0x0d1b2a, shipColor: 0x5dade2, showShips: true,  noTouching: RULES.noTouching });
   playerBoard.placeAtMatrix(baseM);
   playerBoard.addToScene(scene);
 
   const gap = 0.12;
   const dx = playerBoard.size + gap;
   const enemyM = offsetLocalXZ(baseM, dx, 0);
-  enemyBoard = new Board(0.50, 10, { baseColor: 0x1b1430, shipColor: 0xaa66ff, showShips: false });
+  enemyBoard = new Board(0.50, 10, { baseColor: 0x1b1430, shipColor: 0xaa66ff, showShips: false, noTouching: RULES.noTouching });
   enemyBoard.placeAtMatrix(enemyM);
   enemyBoard.addToScene(scene);
 
@@ -370,7 +355,6 @@ function placeBoardsFromReticle() {
   statusEl.textContent = "Schiffe setzen (linkes Brett): Ziel → Trigger, Squeeze rotiert (H/V).";
 }
 
-/* ---------- Spielsteuerung ---------- */
 function rotateShip() {
   orientation = (orientation === "H") ? "V" : "H";
   updateFleetUI();
@@ -394,7 +378,6 @@ function startGame() {
   statusEl.textContent = "Spielphase: Ziel auf das rechte Brett und Trigger drücken.";
   playEarcon("start");
 
-  // NEU: KI initialisieren
   aiState = makeAIState(playerBoard.cells);
 }
 
@@ -406,23 +389,20 @@ function setTurn(t) {
 /* ---------- KI (Hunt/Target) ---------- */
 function makeAIState(n) {
   return {
-    mode: "hunt",                // "hunt" | "target"
-    hitTrail: [],               // [{row,col}]
-    orientation: null,          // "H" | "V" | null (wenn 2+ Treffer in Linie)
-    targetQueue: [],            // priorisierte Ziele (nur orthogonale Nachbarn / Linien-Enden)
+    mode: "hunt",
+    hitTrail: [],
+    orientation: null,
+    targetQueue: [],
     size: n
   };
 }
 
 function aiChooseCell(board) {
-  // 1) Target-Phase: bevorzuge targetQueue
   while (aiState.targetQueue.length) {
     const {row, col} = aiState.targetQueue.shift();
     if (inBounds(board, row, col) && board.shots[row][col] === 0) return [row, col];
   }
 
-  // 2) Hunt-Phase: simple Random auf unbeschossenen Zellen
-  // (Parity-Optimierung möglich; hier bewusst simpel und zuverlässig)
   const candidates = [];
   for (let r = 0; r < board.cells; r++) {
     for (let c = 0; c < board.cells; c++) {
@@ -435,10 +415,8 @@ function aiChooseCell(board) {
 }
 
 function aiOnHit(row, col) {
-  // Treffer zum Trail hinzufügen
   aiState.hitTrail.push({row, col});
 
-  // Orientation bestimmen, wenn >= 2 Treffer
   if (aiState.hitTrail.length >= 2) {
     const a = aiState.hitTrail[0], b = aiState.hitTrail[1];
     aiState.orientation = (a.row === b.row) ? "H" : (a.col === b.col ? "V" : aiState.orientation);
@@ -447,10 +425,8 @@ function aiOnHit(row, col) {
   aiState.mode = "target";
 
   if (!aiState.orientation) {
-    // Kreuz um den neuesten Treffer
     enqueueCrossTargets(row, col);
   } else {
-    // Linie erweitern: min/max entlang der Orientierung finden und die Enden anvisieren
     let minR = row, maxR = row, minC = col, maxC = col;
     for (const h of aiState.hitTrail) {
       minR = Math.min(minR, h.row); maxR = Math.max(maxR, h.row);
@@ -466,21 +442,16 @@ function aiOnHit(row, col) {
   }
 }
 
-function aiOnMiss() {
-  // Bei Miss in Target-Phase: einfach weiter – die Enden/Lücken werden bereits abgearbeitet.
-  // Wenn targetQueue leer wird, fallen wir in aiChooseCell() automatisch in Hunt zurück.
-}
+function aiOnMiss() {}
 
 function aiOnSunk(ship, board) {
-  // Nach Versenken: umliegende Felder blocken, Trail/Queue zurücksetzen
   markAroundShip(board, ship, true);
-  aiState = makeAIState(board.cells); // Reset auf Hunt
+  aiState = makeAIState(board.cells);
 }
 
 function aiEnqueueUnique(cell) {
   if (!cell) return;
   aiState.targetQueue.push(cell);
-  // Duplikate entfernen / später gefiltert, shots==0 wird bei Auswahl geprüft
 }
 
 function enqueueCrossTargets(r, c) {
@@ -494,7 +465,7 @@ function aiTurn() {
   if (phase !== "play" || !playerBoard) return;
 
   const pick = aiChooseCell(playerBoard);
-  if (!pick) return; // nichts mehr zu schießen
+  if (!pick) return;
   const [row, col] = pick;
 
   const res = playerBoard.receiveShot(row, col);
@@ -515,7 +486,6 @@ function aiTurn() {
     playEarcon("miss_enemy");
     aiOnMiss();
   } else {
-    // repeat → sofort neuen Versuch (sollte durch Filter eigentlich nicht passieren)
     return setTimeout(aiTurn, 0);
   }
 
@@ -552,7 +522,7 @@ function resetAll() {
   playEarcon("reset");
 }
 
-/* ---------- UI Helfer ---------- */
+/* ---------- UI Helpers ---------- */
 function updateFleetUI() {
   phaseEl.textContent = phase + (phase === "setup" ? ` (Ori: ${orientation})` : "");
   if (!fleet) { fleetEl.innerHTML = ""; btnUndo.disabled = true; if (btnStartGame) btnStartGame.disabled = true; return; }
@@ -620,8 +590,6 @@ function offsetLocalXZ(baseMatrix, dx, dz) {
   return out;
 }
 
-function allCells(n) { const arr = []; for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) arr.push([r, c]); return arr; }
-
 /* ---------- KI-Flottenplatzierung ---------- */
 function randomizeFleet(board, lengths) {
   for (const L of lengths) {
@@ -647,28 +615,25 @@ function randomizeFleet(board, lengths) {
   }
 }
 
-/* ---------- Sunk: umliegende Felder markieren ---------- */
+/* ---------- Sunk: umliegende Felder markieren (No-Touching) ---------- */
 function markAroundShip(board, ship, setShots=true) {
-  const cells = [];
   const r0 = ship.row, c0 = ship.col;
   const len = ship.length;
   const horiz = ship.orientation === "H";
 
-  // Bounding-Box um das Schiff, +1 Rand in alle Richtungen, inkl. Diagonalen
   const rStart = r0 - 1;
   const cStart = c0 - 1;
-  const rEnd   = horiz ? r0 + 1 : r0 + len;   // letzte belegte Reihe ist r0 bei H, sonst r0..r0+len-1 → Rand +1
-  const cEnd   = horiz ? c0 + len : c0 + 1;   // letzte belegte Spalte ist c0..c0+len-1 bei H, sonst c0 → Rand +1
+  const rEnd   = horiz ? r0 + 1 : r0 + len;
+  const cEnd   = horiz ? c0 + len : c0 + 1;
 
   for (let r = rStart; r <= rEnd; r++) {
     for (let c = cStart; c <= cEnd; c++) {
-      // Zellen, die NICHT Teil des Schiffs sind
       const isShipCell = horiz
         ? (r === r0 && c >= c0 && c < c0 + len)
         : (c === c0 && r >= r0 && r < r0 + len);
       if (!isShipCell && inBounds(board, r, c)) {
         if (board.shots[r][c] === 0) {
-          if (setShots) board.shots[r][c] = 1; // als „bereits geschossen (leer)“ markieren
+          if (setShots) board.shots[r][c] = 1;
           board.markCell(r, c, 0xb0b6bf, 0.65, 2.8);
         }
       }
@@ -680,7 +645,7 @@ function inBounds(board, r, c) {
   return r >= 0 && r < board.cells && c >= 0 && c < board.cells;
 }
 
-/* ---------- Audio: Mini-Synth (ohne Dateien) ---------- */
+/* ---------- Audio ---------- */
 function initAudio() {
   try {
     if (!audioEnabled) return;
@@ -726,7 +691,7 @@ function playEarcon(kind) {
     case "hit_enemy":  tone(260,"sine",0.12,0.22); break;
     case "miss_enemy": tone(700,"triangle",0.05,0.14); break;
     case "error":      tone(180,"square",0.05,0.18); break;
-    case "win":        chord([392,494,587],0.55,0.24); break;   // G B D
+    case "win":        chord([392,494,587],0.55,0.24); break;
     case "lose":       tone(160,"sine",0.25,0.22); break;
     case "reset":      tone(480,"sine",0.05,0.18); break;
   }

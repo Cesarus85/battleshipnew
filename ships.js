@@ -1,41 +1,37 @@
-// Flotten-Logik: Reihenfolge, Restzählung, Platzierungen
 export class FleetManager {
-  // Standard-Flotte: 5,4,3,3,2
   constructor(lengths = [5,4,3,3,2]) {
-    this.order = lengths.slice();        // queue
-    this.placed = [];                    // {length,row,col,orientation}
+    this.initial = [...lengths];
+    this.order = [...lengths];  // queue of lengths to place
+    this.placed = [];           // [{row,col,length,orientation}]
   }
 
   currentLength() {
     return this.order.length ? this.order[0] : null;
   }
 
-  complete() {
-    return this.order.length === 0;
-  }
-
   advance(row, col, length, orientation) {
-    if (!this.order.length || this.order[0] !== length) return;
-    this.placed.push({ row, col, length, orientation });
-    this.order.shift();
+    // remove one length from the front if matches, else remove first occurrence
+    const idx = this.order.indexOf(length);
+    if (idx >= 0) this.order.splice(idx,1);
+    this.placed.push({row, col, length, orientation});
   }
 
   undo() {
-    if (!this.placed.length) return null;
     const last = this.placed.pop();
+    if (!last) return null;
+    // put length back to the front so user places it again next
     this.order.unshift(last.length);
     return last;
   }
 
-  summary() {
-    const cnt = {};
-    for (const L of [2,3,4,5,6]) cnt[L] = 0;
-    for (const L of this.order) cnt[L] = (cnt[L] || 0) + 1;
-    return cnt;
+  complete() {
+    return this.order.length === 0;
   }
 
-  reset(lengths = [5,4,3,3,2]) {
-    this.order = lengths.slice();
-    this.placed = [];
+  summary() {
+    const counts = {};
+    for (const L of this.initial) counts[L] = (counts[L]||0) + 1;
+    for (const p of this.placed) counts[p.length]--;
+    return counts;
   }
 }
