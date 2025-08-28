@@ -128,7 +128,7 @@ function wireUI() {
   });
 
   btnRotate.addEventListener("click", () => { initAudio(); rotateShip(); saveState(); });
-  btnMoveBoards?.addEventListener("click", () => { initAudio(); moveBoards(); saveState(); });
+  btnMoveBoards?.addEventListener("click", () => { initAudio(); moveBoards(); });
   btnUndo.addEventListener("click", () => { initAudio(); undoShip(); saveState(); });
   if (btnStartGame) btnStartGame.addEventListener("click", () => { initAudio(); startGame(); });
 
@@ -431,7 +431,7 @@ function moveBoards() {
   setTurn("player");
   hoverCellEl.textContent = "–";
   lastPickEl.textContent = "–";
-  statusEl.textContent = "Bretter entfernt. Richte Reticle auf die Fläche und drücke Trigger zum Platzieren.";
+  statusEl.textContent = "Bretter entfernt. Richte Reticle auf die Fläche und drücke Trigger zum Platzieren. Speichere danach manuell.";
   playEarcon("reset");
 }
 
