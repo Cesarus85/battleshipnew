@@ -251,7 +251,6 @@ function onXRFrame(time, frame) {
       enemyBoard?.clearHover();
     }
   }
-  }
 
   // FX updaten
   playerBoard?.updateEffects?.(dt);
