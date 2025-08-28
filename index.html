@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>AR Battleship – Step 4 (KI & Runden)</title>
+  <title>AR Battleship – Step 7 (Persistenz + No-Touch)</title>
   <link rel="stylesheet" href="./styles.css" />
   <style>
     #fleet { display:flex; gap:8px; flex-wrap:wrap; font-size:14px; opacity:.95; }
@@ -12,6 +12,8 @@
     #setupBtns button { min-width:150px; }
     #phase { font-weight:600; color:#7bdcff; }
     #turn { font-weight:600; }
+    #persistBtns { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 0; }
+    #persistBtns button { min-width:140px; }
   </style>
 </head>
 <body>
@@ -39,10 +41,19 @@
         <div id="setupBtns">
           <button id="btnRotate">Drehen (H↔V)</button>
           <button id="btnUndo" disabled>Letztes Schiff zurück</button>
-          <button id="btnStartGame" disabled style="display:none">Spiel starten</button>
+          <button id="btnStartGame" disabled>Spiel starten</button>
         </div>
-        <div style="font-size:13px;opacity:.9">
+
+        <!-- Persistenz -->
+        <div id="persistBtns">
+          <button id="btnSave">Speichern</button>
+          <button id="btnLoad">Laden</button>
+          <button id="btnClear">Speicher löschen</button>
+        </div>
+
+        <div style="font-size:13px;opacity:.9;margin-top:6px">
           Tipp: Im Setup rotiert auch <strong>Squeeze</strong> am Controller. Trigger setzt das Schiff.
+          Schiffe dürfen sich <strong>nicht berühren</strong> (auch nicht diagonal).
         </div>
       </div>
 
