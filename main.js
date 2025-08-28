@@ -26,6 +26,7 @@ const btnPerms = document.getElementById("btnPerms");
 const phaseEl = document.getElementById("phase");
 const fleetEl = document.getElementById("fleet");
 const btnRotate = document.getElementById("btnRotate");
+const btnMoveBoards = document.getElementById("btnMoveBoards");
 const btnUndo = document.getElementById("btnUndo");
 const btnStartGame = document.getElementById("btnStartGame");
 const turnEl = document.getElementById("turn");
@@ -127,6 +128,7 @@ function wireUI() {
   });
 
   btnRotate.addEventListener("click", () => { initAudio(); rotateShip(); saveState(); });
+  btnMoveBoards?.addEventListener("click", () => { initAudio(); moveBoards(); saveState(); });
   btnUndo.addEventListener("click", () => { initAudio(); undoShip(); saveState(); });
   if (btnStartGame) btnStartGame.addEventListener("click", () => { initAudio(); startGame(); });
 
@@ -403,11 +405,30 @@ function placeBoardsFromReticle() {
 
   reticle.visible = false;
   btnReset.disabled = false;
+  if (btnMoveBoards) btnMoveBoards.disabled = false;
 
   fleet = new FleetManager([5,4,3,3,2]);
   setPhase("setup");
   updateFleetUI();
   statusEl.textContent = "Schiffe setzen (linkes Brett): Ziel → Trigger, Squeeze rotiert (H/V).";
+}
+
+function moveBoards() {
+  picker.setBoard(null);
+  if (playerBoard) { playerBoard.removeFromScene(scene); playerBoard.dispose(); }
+  if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
+  playerBoard = null; enemyBoard = null;
+  fleet = null; aiState = null;
+  reticle.visible = true;
+  btnReset.disabled = true;
+  if (btnMoveBoards) btnMoveBoards.disabled = true;
+  setPhase("placement");
+  updateFleetUI();
+  setTurn("player");
+  hoverCellEl.textContent = "–";
+  lastPickEl.textContent = "–";
+  statusEl.textContent = "Bretter entfernt. Richte Reticle auf die Fläche und drücke Trigger zum Platzieren.";
+  playEarcon("reset");
 }
 
 /* ---------- Spielsteuerung ---------- */
@@ -581,6 +602,7 @@ function resetAll() {
   setPhase("placement");
   setTurn("player");
   btnReset.disabled = true;
+  if (btnMoveBoards) btnMoveBoards.disabled = true;
   statusEl.textContent = "Zurückgesetzt. Richte Reticle auf die Fläche und drücke Trigger zum Platzieren.";
   playEarcon("reset");
 }
@@ -827,6 +849,7 @@ function loadState() {
     picker.setBoard(playerBoard);
     reticle.visible = false;
     btnReset.disabled = false;
+    if (btnMoveBoards) btnMoveBoards.disabled = false;
 
     aimMode = data.aimMode || "gaze"; setAimMode(aimMode);
     orientation = data.orientation || "H";
