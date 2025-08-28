@@ -258,7 +258,10 @@ function onXRFrame(time, frame) {
         const m = new THREE.Matrix4().fromArray(lastHitPose.matrix ?? matrixFromTransform(lastHitPose));
         reticle.visible = true; reticle.matrix.copy(m);
       }
-    } else { reticle.visible = false; }
+    } else {
+      lastHitPose = null;
+      reticle.visible = false;
+    }
   } else if (phase === "setup") {
     picker.setBoard(playerBoard);
     const cell = updateHover();
@@ -419,7 +422,8 @@ function moveBoards() {
   if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
   playerBoard = null; enemyBoard = null;
   fleet = null; aiState = null;
-  reticle.visible = true;
+  lastHitPose = null;
+  reticle.visible = false;
   btnReset.disabled = true;
   if (btnMoveBoards) btnMoveBoards.disabled = true;
   setPhase("placement");
