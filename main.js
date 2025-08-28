@@ -5,6 +5,8 @@ import { Board } from "./board.js";
 import { Picker } from "./picking.js";
 import { FleetManager } from "./ships.js";
 
+const STORAGE_KEY = "ar-battleship-v1";
+
 const canvas = document.getElementById("xr-canvas");
 const overlay = document.getElementById("overlay");
 const statusEl = document.getElementById("status");
@@ -25,8 +27,13 @@ const phaseEl = document.getElementById("phase");
 const fleetEl = document.getElementById("fleet");
 const btnRotate = document.getElementById("btnRotate");
 const btnUndo = document.getElementById("btnUndo");
-const btnStartGame = document.getElementById("btnStartGame"); // optional (evtl. hidden)
+const btnStartGame = document.getElementById("btnStartGame");
 const turnEl = document.getElementById("turn");
+
+// Persistenz-Buttons
+const btnSave = document.getElementById("btnSave");
+const btnLoad = document.getElementById("btnLoad");
+const btnClear = document.getElementById("btnClear");
 
 let renderer, scene, camera;
 let xrSession = null;
@@ -63,6 +70,9 @@ let aiState = null;
 // Audio/Haptik
 let audioCtx = null, masterGain = null;
 let audioEnabled = true, hapticsEnabled = true;
+
+// Laden vorm AR-Start vormerken
+let pendingLoad = false;
 
 initGL();
 wireUI();
@@ -108,17 +118,26 @@ function wireUI() {
   btnStartSafe.addEventListener("click", () => { initAudio(); startAR("safe"); });
   btnReset.addEventListener("click", resetAll);
 
-  btnAimGaze.addEventListener("click", () => setAimMode("gaze"));
-  btnAimController.addEventListener("click", () => setAimMode("controller"));
+  btnAimGaze.addEventListener("click", () => { setAimMode("gaze"); saveState(); });
+  btnAimController.addEventListener("click", () => { setAimMode("controller"); saveState(); });
 
   btnDiag.addEventListener("click", () => diagnose());
   btnPerms.addEventListener("click", () => {
     statusEl.textContent = "Quest-Browser → Seiteneinstellungen: 'Passthrough/AR' & 'Bewegung/Tracking' erlauben. Falls abgelehnt: Berechtigungen zurücksetzen und Seite neu laden.";
   });
 
-  btnRotate.addEventListener("click", () => { initAudio(); rotateShip(); });
-  btnUndo.addEventListener("click", () => { initAudio(); undoShip(); });
+  btnRotate.addEventListener("click", () => { initAudio(); rotateShip(); saveState(); });
+  btnUndo.addEventListener("click", () => { initAudio(); undoShip(); saveState(); });
   if (btnStartGame) btnStartGame.addEventListener("click", () => { initAudio(); startGame(); });
+
+  // Persistenz
+  btnSave.addEventListener("click", () => { saveState(true); });
+  btnLoad.addEventListener("click", () => {
+    // Wenn noch keine AR-Session läuft, nach Start automatisch laden
+    if (!xrSession) { pendingLoad = true; startAR("regular"); return; }
+    loadState();
+  });
+  btnClear.addEventListener("click", () => { clearState(); });
 }
 
 function setAimMode(mode) {
@@ -191,6 +210,9 @@ async function startAR(mode = "regular") {
     setPhase("placement");
     prevTime = null;
     renderer.setAnimationLoop(onXRFrame);
+
+    // Sollte ein Laden vormerkt sein, jetzt ausführen
+    if (pendingLoad) { pendingLoad = false; setTimeout(() => loadState(), 200); }
   } catch (err) {
     statusEl.textContent = `AR-Start fehlgeschlagen: ${err?.name || "Error"} – ${err?.message || err}`;
   }
@@ -276,7 +298,7 @@ function updateHover() {
 function onSelect(e) {
   initAudio();
 
-  if (phase === "placement") { placeBoardsFromReticle(); buzzFromEvent(e, 0.2, 30); playEarcon("placeBoard"); return; }
+  if (phase === "placement") { placeBoardsFromReticle(); buzzFromEvent(e, 0.2, 30); playEarcon("placeBoard"); saveState(); return; }
 
   if (phase === "setup") {
     const cellEvt = getCellFromSelectEvent(e, playerBoard) || picker.hoverCell;
@@ -285,7 +307,7 @@ function onSelect(e) {
 
     const L = fleet.currentLength(); if (!L) return;
     const ok = playerBoard.canPlaceShip(row, col, L, orientation);
-    if (!ok) { statusEl.textContent = "Ungültige Position (außerhalb oder Kollision)."; playEarcon("error"); buzzFromEvent(e, 0.1, 40); return; }
+    if (!ok) { statusEl.textContent = "Ungültige Position (außerhalb, Kollision oder Berührung)."; playEarcon("error"); buzzFromEvent(e, 0.1, 40); return; }
 
     playerBoard.placeShip(row, col, L, orientation);
     fleet.advance(row, col, L, orientation);
@@ -294,6 +316,7 @@ function onSelect(e) {
     playerBoard.clearGhost();
     // leichte Bestätigung
     playEarcon("placeShip"); buzzFromEvent(e, 0.15, 40);
+    saveState();
 
     // Auto-Start
     if (fleet.complete()) {
@@ -320,7 +343,7 @@ function onSelect(e) {
       buzzFromEvent(e, res.result === "sunk" ? 0.9 : 0.6, res.result === "sunk" ? 220 : 120);
       if (res.result === "sunk" && res.ship) {
         enemyBoard.flashShip(res.ship, 1.0);
-        // NEU: umliegende Felder beim Gegner markieren (Spieler-Ansicht)
+        // umliegende Felder beim Gegner markieren (Spieler-Ansicht)
         markAroundShip(enemyBoard, res.ship, true);
       }
     } else {
@@ -339,7 +362,7 @@ function onSelect(e) {
 }
 
 function onSqueeze() {
-  if (phase === "setup") { rotateShip(); playEarcon("rotate"); }
+  if (phase === "setup") { rotateShip(); playEarcon("rotate"); saveState(); }
 }
 
 /* ---------- Boards platzieren ---------- */
@@ -394,7 +417,7 @@ function startGame() {
   statusEl.textContent = "Spielphase: Ziel auf das rechte Brett und Trigger drücken.";
   playEarcon("start");
 
-  // NEU: KI initialisieren
+  // KI initialisieren
   aiState = makeAIState(playerBoard.cells);
 }
 
@@ -422,7 +445,6 @@ function aiChooseCell(board) {
   }
 
   // 2) Hunt-Phase: simple Random auf unbeschossenen Zellen
-  // (Parity-Optimierung möglich; hier bewusst simpel und zuverlässig)
   const candidates = [];
   for (let r = 0; r < board.cells; r++) {
     for (let c = 0; c < board.cells; c++) {
@@ -435,10 +457,8 @@ function aiChooseCell(board) {
 }
 
 function aiOnHit(row, col) {
-  // Treffer zum Trail hinzufügen
   aiState.hitTrail.push({row, col});
 
-  // Orientation bestimmen, wenn >= 2 Treffer
   if (aiState.hitTrail.length >= 2) {
     const a = aiState.hitTrail[0], b = aiState.hitTrail[1];
     aiState.orientation = (a.row === b.row) ? "H" : (a.col === b.col ? "V" : aiState.orientation);
@@ -447,10 +467,8 @@ function aiOnHit(row, col) {
   aiState.mode = "target";
 
   if (!aiState.orientation) {
-    // Kreuz um den neuesten Treffer
     enqueueCrossTargets(row, col);
   } else {
-    // Linie erweitern: min/max entlang der Orientierung finden und die Enden anvisieren
     let minR = row, maxR = row, minC = col, maxC = col;
     for (const h of aiState.hitTrail) {
       minR = Math.min(minR, h.row); maxR = Math.max(maxR, h.row);
@@ -466,13 +484,9 @@ function aiOnHit(row, col) {
   }
 }
 
-function aiOnMiss() {
-  // Bei Miss in Target-Phase: einfach weiter – die Enden/Lücken werden bereits abgearbeitet.
-  // Wenn targetQueue leer wird, fallen wir in aiChooseCell() automatisch in Hunt zurück.
-}
+function aiOnMiss() {}
 
 function aiOnSunk(ship, board) {
-  // Nach Versenken: umliegende Felder blocken, Trail/Queue zurücksetzen
   markAroundShip(board, ship, true);
   aiState = makeAIState(board.cells); // Reset auf Hunt
 }
@@ -480,7 +494,6 @@ function aiOnSunk(ship, board) {
 function aiEnqueueUnique(cell) {
   if (!cell) return;
   aiState.targetQueue.push(cell);
-  // Duplikate entfernen / später gefiltert, shots==0 wird bei Auswahl geprüft
 }
 
 function enqueueCrossTargets(r, c) {
@@ -494,13 +507,13 @@ function aiTurn() {
   if (phase !== "play" || !playerBoard) return;
 
   const pick = aiChooseCell(playerBoard);
-  if (!pick) return; // nichts mehr zu schießen
+  if (!pick) return;
   const [row, col] = pick;
 
   const res = playerBoard.receiveShot(row, col);
   if (res.result === "hit" || res.result === "sunk") {
     playerBoard.markCell(row, col, 0xe74c3c, 0.95);
-    playerBoard.pulseAtCell(row, col, 0xe74c3c, 0.6);
+    playerBoard.pulseAtCell(row, col, 0.e74c3c, 0.6);
     if (res.result === "sunk" && res.ship) playerBoard.flashShip(res.ship, 1.0);
     playEarcon(res.result === "sunk" ? "sunk_enemy" : "hit_enemy");
 
@@ -515,7 +528,6 @@ function aiTurn() {
     playEarcon("miss_enemy");
     aiOnMiss();
   } else {
-    // repeat → sofort neuen Versuch (sollte durch Filter eigentlich nicht passieren)
     return setTimeout(aiTurn, 0);
   }
 
@@ -626,7 +638,7 @@ function allCells(n) { const arr = []; for (let r = 0; r < n; r++) for (let c = 
 function randomizeFleet(board, lengths) {
   for (const L of lengths) {
     let placed = false, guard = 0;
-    while (!placed && guard++ < 500) {
+    while (!placed && guard++ < 800) {
       const orientation = Math.random() < 0.5 ? "H" : "V";
       const row = Math.floor(Math.random() * board.cells);
       const col = Math.floor(Math.random() * board.cells);
@@ -649,26 +661,23 @@ function randomizeFleet(board, lengths) {
 
 /* ---------- Sunk: umliegende Felder markieren ---------- */
 function markAroundShip(board, ship, setShots=true) {
-  const cells = [];
   const r0 = ship.row, c0 = ship.col;
   const len = ship.length;
   const horiz = ship.orientation === "H";
 
-  // Bounding-Box um das Schiff, +1 Rand in alle Richtungen, inkl. Diagonalen
   const rStart = r0 - 1;
   const cStart = c0 - 1;
-  const rEnd   = horiz ? r0 + 1 : r0 + len;   // letzte belegte Reihe ist r0 bei H, sonst r0..r0+len-1 → Rand +1
-  const cEnd   = horiz ? c0 + len : c0 + 1;   // letzte belegte Spalte ist c0..c0+len-1 bei H, sonst c0 → Rand +1
+  const rEnd   = horiz ? r0 + 1 : r0 + len;
+  const cEnd   = horiz ? c0 + len : c0 + 1;
 
   for (let r = rStart; r <= rEnd; r++) {
     for (let c = cStart; c <= cEnd; c++) {
-      // Zellen, die NICHT Teil des Schiffs sind
       const isShipCell = horiz
         ? (r === r0 && c >= c0 && c < c0 + len)
         : (c === c0 && r >= r0 && r < r0 + len);
       if (!isShipCell && inBounds(board, r, c)) {
         if (board.shots[r][c] === 0) {
-          if (setShots) board.shots[r][c] = 1; // als „bereits geschossen (leer)“ markieren
+          if (setShots) board.shots[r][c] = 1;
           board.markCell(r, c, 0xb0b6bf, 0.65, 2.8);
         }
       }
@@ -726,7 +735,7 @@ function playEarcon(kind) {
     case "hit_enemy":  tone(260,"sine",0.12,0.22); break;
     case "miss_enemy": tone(700,"triangle",0.05,0.14); break;
     case "error":      tone(180,"square",0.05,0.18); break;
-    case "win":        chord([392,494,587],0.55,0.24); break;   // G B D
+    case "win":        chord([392,494,587],0.55,0.24); break;
     case "lose":       tone(160,"sine",0.25,0.22); break;
     case "reset":      tone(480,"sine",0.05,0.18); break;
   }
@@ -740,4 +749,89 @@ function buzzFromEvent(e, intensity=0.5, durationMs=80) {
       h?.pulse?.(Math.min(1, Math.max(0, intensity)), Math.max(1, durationMs));
     }
   } catch {}
+}
+
+/* ---------- Persistenz (LocalStorage) ---------- */
+function getSaveSnapshot() {
+  const snap = { v: 1, aimMode, orientation, playerBoard: null };
+  if (playerBoard) {
+    snap.playerBoard = {
+      size: playerBoard.size,
+      cells: playerBoard.cells,
+      matrix: Array.from(playerBoard.matrix.elements),
+      ships: fleet ? fleet.placed.map(s => ({ row: s.row, col: s.col, length: s.length, orientation: s.orientation })) : []
+    };
+  }
+  return snap;
+}
+
+function saveState(manual=false) {
+  try {
+    const data = getSaveSnapshot();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    if (manual) statusEl.textContent = "Gespeichert.";
+  } catch (e) {
+    statusEl.textContent = "Speichern fehlgeschlagen: " + (e?.message || e);
+  }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) { statusEl.textContent = "Kein gespeicherter Stand gefunden."; return; }
+    const data = JSON.parse(raw);
+    if (!xrSession) { statusEl.textContent = "Bitte AR starten, dann laden."; return; }
+
+    // Vorhandenes Spiel leeren
+    if (playerBoard || enemyBoard) resetAll();
+
+    // Boards aus Matrix wiederherstellen
+    const baseM = new THREE.Matrix4().fromArray(data?.playerBoard?.matrix || []);
+    if (!baseM) { statusEl.textContent = "Ungültige gespeicherte Pose."; return; }
+
+    playerBoard = new Board(0.50, 10, { baseColor: 0x0d1b2a, shipColor: 0x5dade2, showShips: true });
+    playerBoard.placeAtMatrix(baseM);
+    playerBoard.addToScene(scene);
+
+    const gap = 0.12;
+    const dx = playerBoard.size + gap;
+    const enemyM = offsetLocalXZ(baseM, dx, 0);
+    enemyBoard = new Board(0.50, 10, { baseColor: 0x1b1430, shipColor: 0xaa66ff, showShips: false });
+    enemyBoard.placeAtMatrix(enemyM);
+    enemyBoard.addToScene(scene);
+
+    picker.setBoard(playerBoard);
+    reticle.visible = false;
+    btnReset.disabled = false;
+
+    aimMode = data.aimMode || "gaze"; setAimMode(aimMode);
+    orientation = data.orientation || "H";
+
+    fleet = new FleetManager([5,4,3,3,2]);
+    const placed = (data?.playerBoard?.ships || []);
+    for (const s of placed) {
+      if (playerBoard.canPlaceShip(s.row, s.col, s.length, s.orientation)) {
+        playerBoard.placeShip(s.row, s.col, s.length, s.orientation);
+        fleet.advance(s.row, s.col, s.length, s.orientation);
+      } else {
+        // Falls alte Stände (ohne Berührungsregel) geladen werden: informativ, aber wir brechen nicht ab.
+        console.warn("Gespeichertes Schiff passt nicht mehr (Berührungsregel aktiv). Übersprungen:", s);
+      }
+    }
+
+    setPhase("setup");
+    updateFleetUI();
+    statusEl.textContent = "Spielstand geladen. Du kannst weiter Schiffe setzen oder 'Spiel starten' drücken.";
+  } catch (e) {
+    statusEl.textContent = "Laden fehlgeschlagen: " + (e?.message || e);
+  }
+}
+
+function clearState() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    statusEl.textContent = "Lokaler Speicher gelöscht.";
+  } catch (e) {
+    statusEl.textContent = "Löschen fehlgeschlagen: " + (e?.message || e);
+  }
 }
