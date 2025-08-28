@@ -19,3 +19,5 @@ button:disabled { opacity: 0.45; cursor: default; }
 #debug { font-size: 13px; white-space: pre-wrap; background: rgba(0,0,0,.35); padding: 10px; border-radius: 10px; }
 .btnrow { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
 strong { color: var(--acc); }
+
+/* kleine Ergänzungen für persist buttons – Layout kommt aus index.html Inline-Styles */
