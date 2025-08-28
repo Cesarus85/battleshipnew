@@ -176,13 +176,34 @@ export class Board {
   clearGhost() { if (this.ghost) this.ghost.visible = false; }
 
   /* ---------- Platzierung & Validierung ---------- */
+
+  _inBounds(r, c) { return r >= 0 && r < this.cells && c >= 0 && c < this.cells; }
+
+  // NEU: keine Berührung – auch diagonale Nachbarn sind verboten
+  _hasAdjacentOccupied(r, c) {
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const rr = r + dr, cc = c + dc;
+        if (!this._inBounds(rr, cc)) continue;
+        if (this.grid[rr][cc] === 1) return true;
+      }
+    }
+    return false;
+  }
+
   canPlaceShip(row, col, length, orientation) {
     if (orientation === "H") {
       if (col + length - 1 >= this.cells) return false;
-      for (let c = col; c < col + length; c++) if (this.grid[row][c] !== 0) return false;
+      for (let c = col; c < col + length; c++) {
+        if (this.grid[row][c] !== 0) return false;            // Belegt?
+        if (this._hasAdjacentOccupied(row, c)) return false;  // Berührungsverbot
+      }
     } else {
       if (row + length - 1 >= this.cells) return false;
-      for (let r = row; r < row + length; r++) if (this.grid[r][col] !== 0) return false;
+      for (let r = row; r < row + length; r++) {
+        if (this.grid[r][col] !== 0) return false;
+        if (this._hasAdjacentOccupied(r, col)) return false;
+      }
     }
     return true;
   }
