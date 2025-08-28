@@ -461,13 +461,17 @@ function aiChooseCell(board) {
     if (inBounds(board, row, col) && board.shots[row][col] === 0) return [row, col];
   }
 
-  // 2) Hunt-Phase: simple Random auf unbeschossenen Zellen
-  const candidates = [];
+  // 2) Hunt-Phase: wähle bevorzugt Felder mit gleicher Parität (Checkerboard)
+  const parityCandidates = [];
+  const fallbackCandidates = [];
   for (let r = 0; r < board.cells; r++) {
     for (let c = 0; c < board.cells; c++) {
-      if (board.shots[r][c] === 0) candidates.push([r, c]);
+      if (board.shots[r][c] !== 0) continue;
+      if ((r + c) % 2 === 0) parityCandidates.push([r, c]);
+      else fallbackCandidates.push([r, c]);
     }
   }
+  const candidates = parityCandidates.length ? parityCandidates : fallbackCandidates;
   if (!candidates.length) return null;
   const idx = Math.floor(Math.random() * candidates.length);
   return candidates[idx];
