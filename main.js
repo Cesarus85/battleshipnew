@@ -51,6 +51,7 @@ let enemyBoard = null;
 
 let picker = null;
 let fleet = null;
+let activeInputSource = null;
 
 // Zielmodus: "gaze" | "controller"
 let aimMode = "gaze";
@@ -233,7 +234,10 @@ function onSessionEnd() {
 
 function onInputSourcesChange() {
   if (!xrSession) return;
-  const src = pickActiveInputSource();
+  if (activeInputSource && !xrSession.inputSources.includes(activeInputSource)) {
+    activeInputSource = null;
+  }
+  const src = activeInputSource || pickActiveInputSource();
   aimInfoEl.textContent = src
     ? (aimMode === "controller" ? `Ray aktiv: ${src.handedness || "neutral"}` : "Zielen über Kopfblick.")
     : (aimMode === "controller" ? "Kein Hand/Controller-Ray." : "Zielen über Kopfblick.");
@@ -284,7 +288,11 @@ function updateHover() {
     if (changed) hoverCellEl.textContent = cell ? picker.board.cellLabel(cell.row, cell.col) : "–";
     return picker.hoverCell || null;
   } else {
-    const src = pickActiveInputSource();
+    let src = activeInputSource;
+    if (!src || !xrSession?.inputSources.includes(src)) {
+      src = pickActiveInputSource();
+      activeInputSource = src;
+    }
     if (!src) { picker.updateWithRay(new THREE.Vector3(1e6,1e6,1e6), new THREE.Vector3(0,-1,0)); return null; }
     const pose = renderer.xr.getFrame().getPose(src.targetRaySpace, localRefSpace);
     if (!pose) return null;
@@ -297,6 +305,7 @@ function updateHover() {
 
 /* ---------- Select: präziser Ray + Audio/Haptik/FX ---------- */
 function onSelect(e) {
+  activeInputSource = e.inputSource;
   initAudio();
 
   if (phase === "placement") { placeBoardsFromReticle(); buzzFromEvent(e, 0.2, 30); playEarcon("placeBoard"); saveState(); return; }
