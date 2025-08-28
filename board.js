@@ -54,6 +54,12 @@ export class Board {
     this.ghostGroup.position.y = 0.004;
     this.group.add(this.ghostGroup);
 
+    // Hover marker (Play-Phase Zielhilfe)
+    this.hoverGroup = new THREE.Group();
+    this.hoverGroup.position.y = 0.0055;
+    this.group.add(this.hoverGroup);
+    this._hoverMarker = null;
+
     this._pulses = []; // {mesh, t, dur, baseScale}
   }
 
@@ -65,9 +71,7 @@ export class Board {
 
   addToScene(scene) { scene.add(this.group); }
   removeFromScene(scene) { scene.remove(this.group); }
-  dispose() {
-    // minimal: let GC handle, or traverse and dispose geometries/materials if needed
-  }
+  dispose() {}
 
   /* ---------- Helpers ---------- */
   cellSize() { return this.size / this.cells; }
@@ -190,7 +194,6 @@ export class Board {
 
   /* ---------- Raycast in Board Space ---------- */
   raycastCell(worldOrigin, worldDir) {
-    // transform ray into local space
     const inv = new THREE.Matrix4().copy(this.group.matrixWorld).invert();
     const o = worldOrigin.clone().applyMatrix4(inv);
     const d = worldDir.clone().transformDirection(inv);
@@ -200,7 +203,6 @@ export class Board {
     const p = o.clone().addScaledVector(d, t);
     const half = this.size/2;
     if (p.x < -half || p.x > half || p.z < -half || p.z > half) return {hit:false};
-    // map to cell
     const step = this.cellSize();
     let col = Math.floor((p.x + half) / step);
     let row = Math.floor((p.z + half) / step);
@@ -215,14 +217,13 @@ export class Board {
     if (this.shots[row][col] === 1) return {result:"repeat"};
     this.shots[row][col] = 1;
     if (this.grid[row][col] === 1) {
-      // find ship
       const ship = this.findShipAt(row,col);
       if (ship) {
         ship.hits++;
         if (ship.hits >= ship.length) return {result:"sunk", ship};
         return {result:"hit", ship};
       }
-      return {result:"hit"}; // fallback
+      return {result:"hit"};
     } else {
       return {result:"miss"};
     }
@@ -239,15 +240,42 @@ export class Board {
     return this.ships.length>0 && this.ships.every(s => s.hits >= s.length);
   }
 
-  /* ---------- Visual Markers ---------- */
+  /* ---------- Hover (Zielhilfe) ---------- */
+clearHover() {
+  if (this._hoverMarker) this._hoverMarker.visible = false;
+}
+
+setHoverCell(row, col) {
+  if (!this.inBounds(row, col)) return this.clearHover();
+  if (!this._hoverMarker) {
+    const step = this.cellSize();
+    const w = step * 0.92;
+    const verts = new Float32Array([
+      -w/2,0,-w/2,  +w/2,0,-w/2,
+      +w/2,0,-w/2,  +w/2,0,+w/2,
+      +w/2,0,+w/2,  -w/2,0,+w/2,
+      -w/2,0,+w/2,  -w/2,0,-w/2,
+    ]);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+    const m = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+    this._hoverMarker = new THREE.LineSegments(g, m);
+    this.hoverGroup.add(this._hoverMarker);
+  }
+  const p = this.cellLocalCenter(row, col);
+  this._hoverMarker.position.set(p.x, 0, p.z);
+  this._hoverMarker.visible = true;
+}
+
+/* ---------- Visual Markers ---------- */
   markCell(row, col, color=0xffffff, opacity=0.9, scale=1.0) {
     const step = this.cellSize();
-    const r = Math.min(step*0.38, 0.03);
-    const geo = new THREE.CylinderGeometry(r, r, 0.004, 24);
+    const r = Math.min(step*0.32, 0.026); // etwas kleiner
+    const geo = new THREE.CylinderGeometry(r, r, 0.003, 28);
     const mat = new THREE.MeshBasicMaterial({color, opacity, transparent:true});
     const disc = new THREE.Mesh(geo, mat);
     const p = this.cellLocalCenter(row,col);
-    disc.rotation.x = -Math.PI/2;
+    // Wichtig: NICHT drehen -> Zylinder bleibt flach auf XZ (Deckflächen oben/unten)
     disc.position.set(p.x, 0.006, p.z);
     disc.scale.multiplyScalar(scale);
     this.marksGroup.add(disc);
@@ -287,7 +315,6 @@ export class Board {
           this.marksGroup.remove(p.mesh);
           p.mesh.geometry.dispose?.(); p.mesh.material.dispose?.();
         } else if (p.flash) {
-          // restore
           p.mesh.scale.setScalar(1.0);
           if (p.mesh.material?.opacity !== undefined) p.mesh.material.opacity = 1.0;
         }
