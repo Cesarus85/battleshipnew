@@ -1,4 +1,4 @@
-// AR + Diagnose + Zielmodus + Trigger-Placement + Setup + KI-Runden + AUTO-START
+// AR + Diagnose + Zielmodus + Trigger-Placement + Setup + KI-Runden (Hunt/Target) + AUTO-START
 // + Audio-Earcons + Haptik + Treffer-Animationen + präziser Select-Ray
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { Board } from "./board.js";
@@ -56,7 +56,9 @@ let orientation = "H"; // "H" oder "V"
 
 // Runden-State
 let turn = "player"; // "player" | "ai"
-let aiCandidates = null;
+
+// --- NEU: KI-Zustand (Hunt/Target) ---
+let aiState = null;
 
 // Audio/Haptik
 let audioCtx = null, masterGain = null;
@@ -316,7 +318,11 @@ function onSelect(e) {
       enemyBoard.pulseAtCell(row, col, 0x2ecc71, 0.6);
       playEarcon(res.result === "sunk" ? "sunk" : "hit");
       buzzFromEvent(e, res.result === "sunk" ? 0.9 : 0.6, res.result === "sunk" ? 220 : 120);
-      if (res.result === "sunk" && res.ship) enemyBoard.flashShip(res.ship, 1.0);
+      if (res.result === "sunk" && res.ship) {
+        enemyBoard.flashShip(res.ship, 1.0);
+        // NEU: umliegende Felder beim Gegner markieren (Spieler-Ansicht)
+        markAroundShip(enemyBoard, res.ship, true);
+      }
     } else {
       enemyBoard.markCell(row, col, 0xd0d5de, 0.9);
       enemyBoard.pulseAtCell(row, col, 0xd0d5de, 0.5);
@@ -387,6 +393,9 @@ function startGame() {
   playerBoard.clearGhost();
   statusEl.textContent = "Spielphase: Ziel auf das rechte Brett und Trigger drücken.";
   playEarcon("start");
+
+  // NEU: KI initialisieren
+  aiState = makeAIState(playerBoard.cells);
 }
 
 function setTurn(t) {
@@ -394,16 +403,99 @@ function setTurn(t) {
   turnEl.textContent = (t === "player") ? "Du bist dran" : "KI ist dran …";
 }
 
-/* ---------- KI (Random, ohne Wiederholung) ---------- */
+/* ---------- KI (Hunt/Target) ---------- */
+function makeAIState(n) {
+  return {
+    mode: "hunt",                // "hunt" | "target"
+    hitTrail: [],               // [{row,col}]
+    orientation: null,          // "H" | "V" | null (wenn 2+ Treffer in Linie)
+    targetQueue: [],            // priorisierte Ziele (nur orthogonale Nachbarn / Linien-Enden)
+    size: n
+  };
+}
+
+function aiChooseCell(board) {
+  // 1) Target-Phase: bevorzuge targetQueue
+  while (aiState.targetQueue.length) {
+    const {row, col} = aiState.targetQueue.shift();
+    if (inBounds(board, row, col) && board.shots[row][col] === 0) return [row, col];
+  }
+
+  // 2) Hunt-Phase: simple Random auf unbeschossenen Zellen
+  // (Parity-Optimierung möglich; hier bewusst simpel und zuverlässig)
+  const candidates = [];
+  for (let r = 0; r < board.cells; r++) {
+    for (let c = 0; c < board.cells; c++) {
+      if (board.shots[r][c] === 0) candidates.push([r, c]);
+    }
+  }
+  if (!candidates.length) return null;
+  const idx = Math.floor(Math.random() * candidates.length);
+  return candidates[idx];
+}
+
+function aiOnHit(row, col) {
+  // Treffer zum Trail hinzufügen
+  aiState.hitTrail.push({row, col});
+
+  // Orientation bestimmen, wenn >= 2 Treffer
+  if (aiState.hitTrail.length >= 2) {
+    const a = aiState.hitTrail[0], b = aiState.hitTrail[1];
+    aiState.orientation = (a.row === b.row) ? "H" : (a.col === b.col ? "V" : aiState.orientation);
+  }
+
+  aiState.mode = "target";
+
+  if (!aiState.orientation) {
+    // Kreuz um den neuesten Treffer
+    enqueueCrossTargets(row, col);
+  } else {
+    // Linie erweitern: min/max entlang der Orientierung finden und die Enden anvisieren
+    let minR = row, maxR = row, minC = col, maxC = col;
+    for (const h of aiState.hitTrail) {
+      minR = Math.min(minR, h.row); maxR = Math.max(maxR, h.row);
+      minC = Math.min(minC, h.col); maxC = Math.max(maxC, h.col);
+    }
+    if (aiState.orientation === "H") {
+      aiEnqueueUnique({row: aiState.hitTrail[0].row, col: minC - 1});
+      aiEnqueueUnique({row: aiState.hitTrail[0].row, col: maxC + 1});
+    } else if (aiState.orientation === "V") {
+      aiEnqueueUnique({row: minR - 1, col: aiState.hitTrail[0].col});
+      aiEnqueueUnique({row: maxR + 1, col: aiState.hitTrail[0].col});
+    }
+  }
+}
+
+function aiOnMiss() {
+  // Bei Miss in Target-Phase: einfach weiter – die Enden/Lücken werden bereits abgearbeitet.
+  // Wenn targetQueue leer wird, fallen wir in aiChooseCell() automatisch in Hunt zurück.
+}
+
+function aiOnSunk(ship, board) {
+  // Nach Versenken: umliegende Felder blocken, Trail/Queue zurücksetzen
+  markAroundShip(board, ship, true);
+  aiState = makeAIState(board.cells); // Reset auf Hunt
+}
+
+function aiEnqueueUnique(cell) {
+  if (!cell) return;
+  aiState.targetQueue.push(cell);
+  // Duplikate entfernen / später gefiltert, shots==0 wird bei Auswahl geprüft
+}
+
+function enqueueCrossTargets(r, c) {
+  aiEnqueueUnique({row: r-1, col: c});
+  aiEnqueueUnique({row: r+1, col: c});
+  aiEnqueueUnique({row: r,   col: c-1});
+  aiEnqueueUnique({row: r,   col: c+1});
+}
+
 function aiTurn() {
   if (phase !== "play" || !playerBoard) return;
 
-  if (!aiCandidates) aiCandidates = allCells(playerBoard.cells);
-  aiCandidates = aiCandidates.filter(([r, c]) => playerBoard.shots[r][c] === 0);
-  if (aiCandidates.length === 0) return;
-
-  const idx = Math.floor(Math.random() * aiCandidates.length);
-  const [row, col] = aiCandidates[idx];
+  const pick = aiChooseCell(playerBoard);
+  if (!pick) return; // nichts mehr zu schießen
+  const [row, col] = pick;
 
   const res = playerBoard.receiveShot(row, col);
   if (res.result === "hit" || res.result === "sunk") {
@@ -411,11 +503,19 @@ function aiTurn() {
     playerBoard.pulseAtCell(row, col, 0xe74c3c, 0.6);
     if (res.result === "sunk" && res.ship) playerBoard.flashShip(res.ship, 1.0);
     playEarcon(res.result === "sunk" ? "sunk_enemy" : "hit_enemy");
+
+    if (res.result === "sunk" && res.ship) {
+      aiOnSunk(res.ship, playerBoard);
+    } else {
+      aiOnHit(row, col);
+    }
   } else if (res.result === "miss") {
     playerBoard.markCell(row, col, 0x95a5a6, 0.9);
     playerBoard.pulseAtCell(row, col, 0x95a5a6, 0.5);
     playEarcon("miss_enemy");
+    aiOnMiss();
   } else {
+    // repeat → sofort neuen Versuch (sollte durch Filter eigentlich nicht passieren)
     return setTimeout(aiTurn, 0);
   }
 
@@ -441,7 +541,7 @@ function resetAll() {
   if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
 
   playerBoard = null; enemyBoard = null;
-  fleet = null; aiCandidates = null;
+  fleet = null; aiState = null;
   orientation = "H";
   hoverCellEl.textContent = "–";
   lastPickEl.textContent = "–";
@@ -545,6 +645,39 @@ function randomizeFleet(board, lengths) {
       }
     }
   }
+}
+
+/* ---------- Sunk: umliegende Felder markieren ---------- */
+function markAroundShip(board, ship, setShots=true) {
+  const cells = [];
+  const r0 = ship.row, c0 = ship.col;
+  const len = ship.length;
+  const horiz = ship.orientation === "H";
+
+  // Bounding-Box um das Schiff, +1 Rand in alle Richtungen, inkl. Diagonalen
+  const rStart = r0 - 1;
+  const cStart = c0 - 1;
+  const rEnd   = horiz ? r0 + 1 : r0 + len;   // letzte belegte Reihe ist r0 bei H, sonst r0..r0+len-1 → Rand +1
+  const cEnd   = horiz ? c0 + len : c0 + 1;   // letzte belegte Spalte ist c0..c0+len-1 bei H, sonst c0 → Rand +1
+
+  for (let r = rStart; r <= rEnd; r++) {
+    for (let c = cStart; c <= cEnd; c++) {
+      // Zellen, die NICHT Teil des Schiffs sind
+      const isShipCell = horiz
+        ? (r === r0 && c >= c0 && c < c0 + len)
+        : (c === c0 && r >= r0 && r < r0 + len);
+      if (!isShipCell && inBounds(board, r, c)) {
+        if (board.shots[r][c] === 0) {
+          if (setShots) board.shots[r][c] = 1; // als „bereits geschossen (leer)“ markieren
+          board.markCell(r, c, 0xb0b6bf, 0.65, 2.8);
+        }
+      }
+    }
+  }
+}
+
+function inBounds(board, r, c) {
+  return r >= 0 && r < board.cells && c >= 0 && c < board.cells;
 }
 
 /* ---------- Audio: Mini-Synth (ohne Dateien) ---------- */
