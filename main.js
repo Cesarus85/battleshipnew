@@ -331,11 +331,27 @@ function onSelect(e) {
   if (phase === "play") {
     if (turn !== "player") { statusEl.textContent = "KI ist dran …"; playEarcon("error"); return; }
     const cellEvt = getCellFromSelectEvent(e, enemyBoard) || picker.hoverCell;
-    if (!cellEvt) { statusEl.textContent = "Kein gültiges Feld getroffen – minimal nach unten neigen."; playEarcon("error"); buzzFromEvent(e, 0.1, 30); return; }
+    if (!cellEvt) {
+      const hover = picker.hoverCell;
+      if (hover) {
+        enemyBoard.pulseAtCell(hover.row, hover.col, 0xff4d4f, 0.6);
+        picker.flashHover(0xff4d4f);
+      }
+      statusEl.textContent = "Kein gültiges Feld getroffen – minimal nach unten neigen.";
+      playEarcon("error"); buzzFromEvent(e, 0.1, 30); return;
+    }
     const { row, col } = cellEvt;
 
     const res = enemyBoard.receiveShot(row, col);
-    if (res.result === "repeat") { statusEl.textContent = "Schon beschossen. Wähle eine andere Zelle."; playEarcon("error"); buzzFromEvent(e, 0.1, 40); return; }
+    if (res.result === "repeat") {
+      const hover = picker.hoverCell;
+      if (hover) {
+        enemyBoard.pulseAtCell(hover.row, hover.col, 0xff4d4f, 0.6);
+        picker.flashHover(0xff4d4f);
+      }
+      statusEl.textContent = "Schon beschossen. Wähle eine andere Zelle.";
+      playEarcon("error"); buzzFromEvent(e, 0.1, 40); return;
+    }
 
     if (res.result === "hit" || res.result === "sunk") {
       enemyBoard.markCell(row, col, 0x2ecc71, 0.9);

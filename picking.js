@@ -6,7 +6,6 @@ export class Picker {
     this.scene = scene;
     this.board = null;
     this.hoverCell = null;
-
     this.hoverMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(0.1, 0.1),
       new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0.5, depthTest: false, depthWrite: false })
@@ -47,6 +46,14 @@ export class Picker {
     const origin = new THREE.Vector3(); camera.getWorldPosition(origin);
     const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
     return this.updateWithRay(origin, dir);
+  }
+
+  flashHover(color, duration = 300) {
+    const mat = this.hoverMesh.material;
+    if (!mat) return;
+    const prev = mat.color.getHex();
+    mat.color.set(color);
+    setTimeout(() => mat.color.set(prev), duration);
   }
 
   dispose() {
