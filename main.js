@@ -241,15 +241,8 @@ function onXRFrame(time, frame) {
       playerBoard.showGhost(cell.row, cell.col, L, orientation, valid);
     } else if (playerBoard) { playerBoard.clearGhost(); }
   } else if (phase === "play") {
-    if (turn === "player") {
-      picker.setBoard(enemyBoard);
-      const cell = updateHover();
-      if (cell) enemyBoard.setHoverCell(cell.row, cell.col);
-      else enemyBoard.clearHover();
-    } else {
-      picker.setBoard(null);
-      enemyBoard?.clearHover();
-    }
+    if (turn === "player") { picker.setBoard(enemyBoard); updateHover(); }
+    else { picker.setBoard(null); }
   }
 
   // FX updaten
@@ -399,7 +392,6 @@ function startGame() {
 function setTurn(t) {
   turn = t;
   turnEl.textContent = (t === "player") ? "Du bist dran" : "KI ist dran …";
-  if (t !== "player") enemyBoard?.clearHover();
 }
 
 /* ---------- KI (Random, ohne Wiederholung) ---------- */
@@ -435,7 +427,6 @@ function aiTurn() {
 
 /* ---------- Game Over ---------- */
 function gameOver(winner) {
-  enemyBoard?.clearHover();
   setPhase("gameover");
   picker.setBoard(null);
   const msg = (winner === "player") ? "Du hast gewonnen! 🎉" : "KI hat gewonnen.";
@@ -445,7 +436,6 @@ function gameOver(winner) {
 
 /* ---------- Reset ---------- */
 function resetAll() {
-  enemyBoard?.clearHover();
   picker.setBoard(null);
   if (playerBoard) { playerBoard.removeFromScene(scene); playerBoard.dispose(); }
   if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }

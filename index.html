@@ -1,63 +1,73 @@
 <!doctype html>
 <html lang="de">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AR Schiffe versenken – Hunt/Target KI</title>
-    <link rel="stylesheet" href="./styles.css" />
-  </head>
-  <body>
-    <canvas id="xr-canvas"></canvas>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>AR Battleship – Step 4 (KI & Runden)</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <style>
+    #fleet { display:flex; gap:8px; flex-wrap:wrap; font-size:14px; opacity:.95; }
+    #fleet .pill { padding:4px 8px; border:1px solid rgba(255,255,255,.25); border-radius:999px; }
+    #setupBtns { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+    #setupBtns button { min-width:150px; }
+    #phase { font-weight:600; color:#7bdcff; }
+    #turn { font-weight:600; }
+  </style>
+</head>
+<body>
+  <!-- DOM Overlay -->
+  <div id="overlay">
+    <div id="ui">
+      <h1>AR Battleship</h1>
+      <p id="status">AR starten → Reticle auf Tisch → <strong>Trigger/Pinch platziert</strong> die Bretter.</p>
 
-    <!-- DOM Overlay -->
-    <div id="overlay">
-      <div class="hud">
-        <div class="row">
-          <button id="btnStart">AR starten</button>
-          <button id="btnStartSafe">AR (Safe)</button>
-          <button id="btnReset" disabled>Zurücksetzen</button>
-          <span id="status" class="status">Bereit.</span>
+      <div class="buttons">
+        <button id="btnStart">AR starten</button>
+        <button id="btnStartSafe">AR (Safe-Mode)</button>
+        <button id="btnReset" disabled>Zurücksetzen</button>
+      </div>
+
+      <div class="toggle">
+        <button id="btnAimGaze" class="active">Zielen: Kopf</button>
+        <button id="btnAimController">Zielen: Hand/Controller</button>
+        <span id="aimInfo"></span>
+      </div>
+
+      <div id="setup" style="margin-top:6px;">
+        <div>Phase: <span id="phase">–</span></div>
+        <div id="fleet"></div>
+        <div id="setupBtns">
+          <button id="btnRotate">Drehen (H↔V)</button>
+          <button id="btnUndo" disabled>Letztes Schiff zurück</button>
+          <button id="btnStartGame" disabled style="display:none">Spiel starten</button>
         </div>
-
-        <div class="row">
-          <div class="pill" id="phase">placement</div>
-          <div class="pill" id="turn">–</div>
-          <div class="pill">Hover: <span id="hoverCell">–</span></div>
-          <div class="pill">Letzter Schuss: <span id="lastPick">–</span></div>
-        </div>
-
-        <div class="row">
-          <div class="group">
-            <span class="label">Zielen:</span>
-            <button id="btnAimGaze" class="toggle active">Kopfblick</button>
-            <button id="btnAimController" class="toggle">Controller</button>
-            <span id="aimInfo" class="muted"></span>
-          </div>
-
-          <div class="group">
-            <span class="label">Platzieren:</span>
-            <button id="btnRotate">Drehen (H/V)</button>
-            <button id="btnUndo" disabled>Rückgängig</button>
-            <button id="btnStartGame" disabled>Spiel starten</button>
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="group">
-            <span class="label">Flotte:</span>
-            <span id="fleet"></span>
-          </div>
-        </div>
-
-        <div class="row">
-          <button id="btnDiag">Diagnose</button>
-          <button id="btnPerms">Berechtigungs‑Tipp</button>
+        <div style="font-size:13px;opacity:.9">
+          Tipp: Im Setup rotiert auch <strong>Squeeze</strong> am Controller. Trigger setzt das Schiff.
         </div>
       </div>
 
-      <pre id="debug" class="debug"></pre>
-    </div>
+      <div id="playUi" style="margin-top:10px;">
+        <div>Spiel: <span id="turn">–</span></div>
+        <div style="font-size:13px;opacity:.9">
+          ✦ <strong>Links</strong>: Dein Brett (eigene Schiffe sichtbar) &nbsp;|&nbsp; ✦ <strong>Rechts</strong>: Gegner (Schiffe verborgen).<br>
+          Du zielst auf das rechte Brett und drückst Trigger.
+        </div>
+      </div>
 
-    <script type="module" src="./main.js"></script>
-  </body>
+      <div id="hud">
+        <div><strong>Hover:</strong> <span id="hoverCell">–</span></div>
+        <div><strong>Auswahl:</strong> <span id="lastPick">–</span></div>
+      </div>
+
+      <div class="btnrow">
+        <button id="btnDiag">Diagnose aktualisieren</button>
+        <button id="btnPerms">Seiten-Berechtigungen Tipps</button>
+      </div>
+      <div id="debug">Noch keine Diagnose.</div>
+    </div>
+  </div>
+
+  <canvas id="xr-canvas"></canvas>
+  <script type="module" src="./main.js"></script>
+</body>
 </html>
