@@ -1,5 +1,5 @@
 // AR + Diagnose + Zielmodus + Trigger-Placement + Setup + KI-Runden (Hunt/Target) + AUTO-START
-// + Audio-Earcons + Haptik + Treffer-Animationen + präziser Select-Ray
+// + Audio-Earcons + Haptik + Treffer-Animationen + präziser Select-Ray + Persistenz
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { Board } from "./board.js";
 import { Picker } from "./picking.js";
@@ -131,13 +131,13 @@ function wireUI() {
   if (btnStartGame) btnStartGame.addEventListener("click", () => { initAudio(); startGame(); });
 
   // Persistenz
-  btnSave.addEventListener("click", () => { saveState(true); });
-  btnLoad.addEventListener("click", () => {
+  btnSave?.addEventListener("click", () => { saveState(true); });
+  btnLoad?.addEventListener("click", () => {
     // Wenn noch keine AR-Session läuft, nach Start automatisch laden
     if (!xrSession) { pendingLoad = true; startAR("regular"); return; }
     loadState();
   });
-  btnClear.addEventListener("click", () => { clearState(); });
+  btnClear?.addEventListener("click", () => { clearState(); });
 }
 
 function setAimMode(mode) {
@@ -513,7 +513,7 @@ function aiTurn() {
   const res = playerBoard.receiveShot(row, col);
   if (res.result === "hit" || res.result === "sunk") {
     playerBoard.markCell(row, col, 0xe74c3c, 0.95);
-    playerBoard.pulseAtCell(row, col, 0.e74c3c, 0.6);
+    playerBoard.pulseAtCell(row, col, 0xe74c3c, 0.6);
     if (res.result === "sunk" && res.ship) playerBoard.flashShip(res.ship, 1.0);
     playEarcon(res.result === "sunk" ? "sunk_enemy" : "hit_enemy");
 
@@ -814,7 +814,6 @@ function loadState() {
         playerBoard.placeShip(s.row, s.col, s.length, s.orientation);
         fleet.advance(s.row, s.col, s.length, s.orientation);
       } else {
-        // Falls alte Stände (ohne Berührungsregel) geladen werden: informativ, aber wir brechen nicht ab.
         console.warn("Gespeichertes Schiff passt nicht mehr (Berührungsregel aktiv). Übersprungen:", s);
       }
     }

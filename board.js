@@ -101,7 +101,12 @@ export class Board {
     });
     this.markers.forEach(m => { m.geometry?.dispose(); m.material?.dispose?.(); });
     this.markers.clear();
-    if (this.ghost) { this.group.remove(this.ghost); this.ghost.geometry.dispose(); this.ghost.material.dispose(); this.ghost = null; }
+    if (this.ghost) {
+      this.group.remove(this.ghost);
+      this.ghost.geometry.dispose();
+      this.ghost.material.dispose();
+      this.ghost = null;
+    }
     // FX entsorgen
     this.effects.forEach(e => {
       this.group.remove(e.mesh);

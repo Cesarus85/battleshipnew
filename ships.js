@@ -21,10 +21,9 @@ export class FleetManager {
   }
 
   undo() {
-    if (!this.placed.length) return null;
+    if (!this.placed.length) return;
     const last = this.placed.pop();
     this.order.unshift(last.length);
-    return last;
   }
 
   summary() {
