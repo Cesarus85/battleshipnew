@@ -241,6 +241,7 @@ function onInputSourcesChange() {
 
 function onXRFrame(time, frame) {
   if (!frame) return;
+  lastXRFrame = frame;
   // delta
   if (prevTime == null) prevTime = time;
   const dt = Math.min(0.1, (time - prevTime) / 1000);
@@ -594,11 +595,14 @@ function pickActiveInputSource() {
   return right || left || any;
 }
 
+let lastXRFrame = null;
+
 function getCellFromSelectEvent(e, board) {
   try {
     if (!e || !board || !localRefSpace) return null;
-    const frame = e.frame || renderer.xr.getFrame?.();
-    if (!frame || !e.inputSource?.targetRaySpace) return null;
+    const frame = e.frame || lastXRFrame;
+    if (!frame) return null;
+    if (!e.inputSource?.targetRaySpace) return null;
     const pose = frame.getPose(e.inputSource.targetRaySpace, localRefSpace);
     if (!pose) return null;
     const m = new THREE.Matrix4().fromArray(pose.transform.matrix ?? matrixFromTransform(pose.transform));
