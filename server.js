@@ -38,7 +38,8 @@ wss.on('connection', ws => {
         // offer/answer/ice durchreichen
         const peer = rooms.get(data.code)?.find(p => p !== ws);
         if (peer && peer.readyState === WebSocket.OPEN) {
-          peer.send(msg);
+          const text = typeof msg === 'string' ? msg : msg.toString();
+          peer.send(text);
         }
       }
     } catch (error) {
