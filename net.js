@@ -11,6 +11,10 @@ const disconnectHandlers = [];
 const connectHandlers = [];
 const roomCodeHandlers = [];
 
+let roomCode = null;
+let pendingOffer = null;
+const pendingCandidates = [];
+
 let msgCounter = 0;
 const pending = new Map();
 const received = new Set();
@@ -28,6 +32,8 @@ function emitConnect() {
 }
 
 function emitRoomCode(code) {
+  roomCode = code;
+  if (connInfo) connInfo.code = code;
   roomCodeHandlers.forEach(cb => {
     try { cb(code); } catch {}
   });
@@ -151,6 +157,14 @@ function createSocket() {
       if (msg.type === 'created') {
         console.log('Room created with code:', msg.code);
         emitRoomCode(msg.code);
+        if (pendingOffer) {
+          socket.send(JSON.stringify({ type: 'offer', offer: pendingOffer, code: roomCode }));
+          pendingOffer = null;
+          pendingCandidates.forEach(c => {
+            socket.send(JSON.stringify({ type: 'candidate', candidate: c, code: roomCode }));
+          });
+          pendingCandidates.length = 0;
+        }
       } else if (msg.type === 'joined') {
         console.log('Successfully joined room:', msg.code);
         emitRoomCode(msg.code);
@@ -169,12 +183,12 @@ function createSocket() {
         await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        socket.send(JSON.stringify({ type: "answer", answer }));
+        socket.send(JSON.stringify({ type: "answer", answer, code: roomCode }));
       } else if (msg.type === "answer") {
         await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
       } else if (msg.type === "candidate") {
-        try { 
-          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); 
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
         } catch (err) { 
           console.error('ICE candidate error:', err); 
         }
@@ -234,7 +248,11 @@ export async function createRoom() {
   
   pc.onicecandidate = (e) => {
     if (e.candidate) {
-      socket.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
+      if (roomCode) {
+        socket.send(JSON.stringify({ type: "candidate", candidate: e.candidate, code: roomCode }));
+      } else {
+        pendingCandidates.push(e.candidate);
+      }
     }
   };
   
@@ -244,8 +262,8 @@ export async function createRoom() {
   
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
+  pendingOffer = offer;
   socket.send(JSON.stringify({ type: "create" }));
-  socket.send(JSON.stringify({ type: "offer", offer }));
   
   setNetPlayerId(0);
   connInfo = { mode: 'host' };
@@ -292,7 +310,7 @@ export async function joinRoom(code) {
   
   pc.onicecandidate = (e) => {
     if (e.candidate) {
-      socket.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
+      socket.send(JSON.stringify({ type: "candidate", candidate: e.candidate, code }));
     }
   };
   
