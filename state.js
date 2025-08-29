@@ -15,7 +15,15 @@ export function setPicker(v) { picker = v; }
 
 // Game boards and fleet
 export let playerBoard = null;
-export function setPlayerBoard(v) { playerBoard = v; }
+const playerBoardHandlers = [];
+export function setPlayerBoard(v) {
+  playerBoard = v;
+  playerBoardHandlers.forEach(cb => {
+    try { cb(v); } catch {}
+  });
+}
+export function onPlayerBoardSet(cb) { playerBoardHandlers.push(cb); }
+export function getPlayerBoard() { return playerBoard; }
 export let enemyBoard = null;
 export function setEnemyBoard(v) { enemyBoard = v; }
 export let remoteBoard = null;
