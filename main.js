@@ -27,35 +27,57 @@ import {
 import {
   startAR,
   getCellFromSelectEvent,
-  matrixFromTransform,
   offsetLocalXZ,
-  xrSession,
-  getLastHitPose,
-  resetLastHitPose
+  xrSession
 } from "./xrSession.js";
 
-export { startAR };
+import {
+  onSqueeze,
+  placeBoardsFromReticle,
+  moveBoards,
+  rotateShip,
+  undoShip,
+  startGame,
+  setTurn
+} from "./gameSetup.js";
 
-const STORAGE_KEY = "ar-battleship-v1";
+export { startAR };
+export {
+  onSqueeze,
+  placeBoardsFromReticle,
+  moveBoards,
+  rotateShip,
+  undoShip,
+  startGame,
+  setTurn
+};
+
+export const STORAGE_KEY = "ar-battleship-v1";
 
 export let renderer, scene, camera;
 export let reticle = null;
 
 // Zwei Boards
 export let playerBoard = null;
+export function setPlayerBoard(v) { playerBoard = v; }
 export let enemyBoard = null;
+export function setEnemyBoard(v) { enemyBoard = v; }
 
 export let picker = null;
 export let fleet = null;
+export function setFleet(v) { fleet = v; }
 
 // Setup-State
 export let orientation = "H"; // "H" oder "V"
+export function setOrientation(v) { orientation = v; }
 
 // Runden-State
 export let turn = "player"; // "player" | "ai"
+export function setTurnValue(v) { turn = v; }
 
 // --- NEU: KI-Zustand (Hunt/Target) ---
-let aiState = null;
+export let aiState = null;
+export function setAIState(v) { aiState = v; }
 
 // Audio/Haptik
 let audioCtx = null, masterGain = null;
@@ -194,134 +216,8 @@ export function onSelect(e) {
   }
 }
 
-export function onSqueeze() {
-  if (phase === "setup") { rotateShip(); playEarcon("rotate"); saveState(); }
-}
-
-/* ---------- Boards platzieren ---------- */
-function placeBoardsFromReticle() {
-  const hitPose = getLastHitPose();
-  if (!hitPose || playerBoard || enemyBoard) return;
-
-  const baseM = new THREE.Matrix4().fromArray(hitPose.matrix ?? matrixFromTransform(hitPose));
-
-  playerBoard = new Board(0.50, 10, { baseColor: 0x0d1b2a, shipColor: 0x5dade2, showShips: true });
-  playerBoard.placeAtMatrix(baseM);
-  playerBoard.addToScene(scene);
-
-  const gap = 0.12;
-  const dx = playerBoard.size + gap;
-  const enemyM = offsetLocalXZ(baseM, dx, 0);
-  enemyBoard = new Board(0.50, 10, { baseColor: 0x1b1430, shipColor: 0xaa66ff, showShips: false });
-  enemyBoard.placeAtMatrix(enemyM);
-  enemyBoard.addToScene(scene);
-
-  picker.setBoard(playerBoard);
-
-  reticle.visible = false;
-  btnReset.disabled = false;
-  if (btnMoveBoards) btnMoveBoards.disabled = false;
-
-  fleet = new FleetManager([5,4,3,3,2]);
-  setPhase("setup");
-  updateFleetUI();
-  statusEl.textContent = "Schiffe setzen (linkes Brett): Ziel → Trigger, Squeeze rotiert (H/V).";
-  
-  // Nach Brett-Verschiebung automatisch Spielzustand wiederherstellen
-  setTimeout(() => {
-    try {
-      const tempData = localStorage.getItem(STORAGE_KEY + "_move_temp");
-      if (tempData) {
-        const savedState = JSON.parse(tempData);
-        localStorage.removeItem(STORAGE_KEY + "_move_temp");
-        
-        // Neue Matrix in gespeicherten Daten einsetzen
-        if (savedState.playerBoard) {
-          savedState.playerBoard.matrix = Array.from(baseM.elements);
-        }
-        
-        // Temporär speichern und laden
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(savedState));
-        setTimeout(() => loadState(), 100);
-        statusEl.textContent = "Bretter verschoben und Spielzustand wiederhergestellt.";
-      }
-    } catch (e) {
-      console.warn("State restore after move failed:", e);
-    }
-  }, 200);
-}
-
-export function moveBoards() {
-  // Aktuellen Spielzustand sichern
-  const savedState = getSaveSnapshot();
-
-  picker.setBoard(null);
-  if (playerBoard) { playerBoard.removeFromScene(scene); playerBoard.dispose(); }
-  if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
-  
-  // Temporary state clearing for repositioning
-  const tempFleet = fleet;
-  const tempAiState = aiState;
-  const tempPhase = phase;
-  const tempTurn = turn;
-  
-    playerBoard = null; enemyBoard = null;
-    fleet = null; aiState = null;
-    resetLastHitPose();
-  reticle.visible = true;
-  btnReset.disabled = true;
-  if (btnMoveBoards) btnMoveBoards.disabled = true;
-  setPhase("placement");
-  updateFleetUI();
-  setTurn("player");
-  hoverCellEl.textContent = "–";
-  lastPickEl.textContent = "–";
-  statusEl.textContent = "Bretter entfernt. Richte Reticle auf die neue Position und drücke Trigger. Der Spielzustand wird wiederhergestellt.";
-  playEarcon("reset");
-  
-  // Spielzustand für automatische Wiederherstellung speichern
-  try {
-    localStorage.setItem(STORAGE_KEY + "_move_temp", JSON.stringify(savedState));
-  } catch (e) {
-    console.warn("Temp save failed:", e);
-  }
-}
-
-/* ---------- Spielsteuerung ---------- */
-export function rotateShip() {
-  orientation = (orientation === "H") ? "V" : "H";
-  updateFleetUI();
-}
-
-export function undoShip() {
-  if (!playerBoard || !fleet) return;
-  const last = playerBoard.undoLastShip();
-  if (!last) return;
-  fleet.undo();
-  updateFleetUI();
-}
-
-export function startGame() {
-  if (!fleet || !playerBoard || !enemyBoard) return;
-  randomizeFleet(enemyBoard, [5,4,3,3,2]);
-  setPhase("play");
-  setTurn("player");
-  picker.setBoard(enemyBoard);
-  playerBoard.clearGhost();
-  statusEl.textContent = "Spielphase: Ziel auf das rechte Brett und Trigger drücken.";
-  playEarcon("start");
-
-  // KI initialisieren
-  aiState = makeAIState(playerBoard.cells);
-}
-
-function setTurn(t) {
-  turn = t;
-  turnEl.textContent = (t === "player") ? "Du bist dran" : "KI ist dran …";
-}
-
 /* ---------- KI (Hunt/Target) ---------- */
-function makeAIState(n) {
+export function makeAIState(n) {
   return {
     mode: "hunt",                // "hunt" | "target"
     hitTrail: [],               // [{row,col}]
@@ -466,7 +362,7 @@ export function resetAll() {
 function allCells(n) { const arr = []; for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) arr.push([r, c]); return arr; }
 
 /* ---------- KI-Flottenplatzierung ---------- */
-function randomizeFleet(board, lengths) {
+export function randomizeFleet(board, lengths) {
   for (const L of lengths) {
     let placed = false, guard = 0;
     while (!placed && guard++ < 800) {
@@ -554,7 +450,7 @@ function chord(freqs=[440,550,660], dur=0.35, vol=0.18) {
   freqs.forEach((f,i)=> tone(f, i%2 ? "triangle":"sine", dur, vol));
 }
 
-function playEarcon(kind) {
+export function playEarcon(kind) {
   switch(kind) {
     case "placeBoard": tone(300, "sine", 0.08, 0.2); break;
     case "placeShip":  tone(520, "triangle", 0.08, 0.2); tone(780,"triangle",0.06,0.12); break;
@@ -583,7 +479,7 @@ function buzzFromEvent(e, intensity=0.5, durationMs=80) {
 }
 
 /* ---------- Persistenz (LocalStorage) ---------- */
-function getSaveSnapshot() {
+export function getSaveSnapshot() {
   const snap = { v: 2, aimMode, orientation, phase, turn, playerBoard: null, enemyBoard: null, aiState: null };
   if (playerBoard) {
     snap.playerBoard = {
