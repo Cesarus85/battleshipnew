@@ -4,37 +4,28 @@ import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.m
 import { Board } from "./board.js";
 import { Picker } from "./picking.js";
 import { FleetManager } from "./ships.js";
+import {
+  canvas,
+  overlay,
+  statusEl,
+  btnStart,
+  btnStartSafe,
+  btnReset,
+  hoverCellEl,
+  lastPickEl,
+  btnMoveBoards,
+  aimInfoEl,
+  turnEl,
+  wireUI,
+  setAimMode,
+  setPhase,
+  diagnose,
+  updateFleetUI,
+  aimMode,
+  phase
+} from "./ui.js";
 
 const STORAGE_KEY = "ar-battleship-v1";
-
-const canvas = document.getElementById("xr-canvas");
-const overlay = document.getElementById("overlay");
-const statusEl = document.getElementById("status");
-const btnStart = document.getElementById("btnStart");
-const btnStartSafe = document.getElementById("btnStartSafe");
-const btnReset = document.getElementById("btnReset");
-const hoverCellEl = document.getElementById("hoverCell");
-const lastPickEl = document.getElementById("lastPick");
-const btnAimGaze = document.getElementById("btnAimGaze");
-const btnAimController = document.getElementById("btnAimController");
-const aimInfoEl = document.getElementById("aimInfo");
-const debugEl = document.getElementById("debug");
-const btnDiag = document.getElementById("btnDiag");
-const btnPerms = document.getElementById("btnPerms");
-
-// Setup UI
-const phaseEl = document.getElementById("phase");
-const fleetEl = document.getElementById("fleet");
-const btnRotate = document.getElementById("btnRotate");
-const btnMoveBoards = document.getElementById("btnMoveBoards");
-const btnUndo = document.getElementById("btnUndo");
-const btnStartGame = document.getElementById("btnStartGame");
-const turnEl = document.getElementById("turn");
-
-// Persistenz-Buttons
-const btnSave = document.getElementById("btnSave");
-const btnLoad = document.getElementById("btnLoad");
-const btnClear = document.getElementById("btnClear");
 
 let renderer, scene, camera;
 let xrSession = null;
@@ -51,16 +42,10 @@ let playerBoard = null;
 let enemyBoard = null;
 
 let picker = null;
-let fleet = null;
-
-// Zielmodus: "gaze" | "controller"
-let aimMode = "gaze";
-
-// Game-Phase
-let phase = "placement";
+export let fleet = null;
 
 // Setup-State
-let orientation = "H"; // "H" oder "V"
+export let orientation = "H"; // "H" oder "V"
 
 // Runden-State
 let turn = "player"; // "player" | "ai"
@@ -114,64 +99,9 @@ function onResize() {
   camera.updateProjectionMatrix();
 }
 
-function wireUI() {
-  btnStart.addEventListener("click", () => { initAudio(); startAR("regular"); });
-  btnStartSafe.addEventListener("click", () => { initAudio(); startAR("safe"); });
-  btnReset.addEventListener("click", resetAll);
+ 
 
-  btnAimGaze.addEventListener("click", () => { setAimMode("gaze"); saveState(); });
-  btnAimController.addEventListener("click", () => { setAimMode("controller"); saveState(); });
-
-  btnDiag.addEventListener("click", () => diagnose());
-  btnPerms.addEventListener("click", () => {
-    statusEl.textContent = "Quest-Browser → Seiteneinstellungen: 'Passthrough/AR' & 'Bewegung/Tracking' erlauben. Falls abgelehnt: Berechtigungen zurücksetzen und Seite neu laden.";
-  });
-
-  btnRotate.addEventListener("click", () => { initAudio(); rotateShip(); saveState(); });
-  btnMoveBoards?.addEventListener("click", () => { initAudio(); moveBoards(); });
-  btnUndo.addEventListener("click", () => { initAudio(); undoShip(); saveState(); });
-  if (btnStartGame) btnStartGame.addEventListener("click", () => { initAudio(); startGame(); });
-
-  // Persistenz
-  btnSave?.addEventListener("click", () => { saveState(true); });
-  btnLoad?.addEventListener("click", () => {
-    // Wenn noch keine AR-Session läuft, nach Start automatisch laden
-    if (!xrSession) { pendingLoad = true; startAR("regular"); return; }
-    loadState();
-  });
-  btnClear?.addEventListener("click", () => { clearState(); });
-}
-
-function setAimMode(mode) {
-  aimMode = mode;
-  btnAimGaze.classList.toggle("active", aimMode === "gaze");
-  btnAimController.classList.toggle("active", aimMode === "controller");
-  aimInfoEl.textContent = aimMode === "gaze" ? "Zielen über Kopfblick." : "Zielen über Hand/Controller-Ray.";
-}
-
-function setPhase(p) {
-  phase = p;
-  phaseEl.textContent = p;
-}
-
-async function diagnose() {
-  const lines = [];
-  const ua = navigator.userAgent || "n/a";
-  lines.push(`User-Agent: ${ua}`);
-  lines.push(`Secure Context: ${window.isSecureContext} (${location.protocol})`);
-  lines.push(`navigator.xr: ${!!navigator.xr}`);
-  try {
-    const arSup = await navigator.xr?.isSessionSupported?.("immersive-ar");
-    const vrSup = await navigator.xr?.isSessionSupported?.("immersive-vr");
-    lines.push(`isSessionSupported('immersive-ar'): ${arSup}`);
-    lines.push(`isSessionSupported('immersive-vr'): ${vrSup}`);
-  } catch (e) {
-    lines.push(`isSessionSupported() Fehler: ${e?.name} – ${e?.message}`);
-  }
-  debugEl.innerHTML = `<strong>Diagnose</strong>\n${lines.join("\n")}\n\nTipps:\n• HTTPS nötig (https:// oder https://localhost)\n• Quest-Browser aktuell?\n• Berechtigungen erteilt?`;
-}
-
-async function startAR(mode = "regular") {
+export async function startAR(mode = "regular") {
   if (!navigator.xr) { statusEl.textContent = "WebXR nicht verfügbar. Bitte Meta/Quest-Browser verwenden."; await diagnose(); return; }
   try {
     const supported = await navigator.xr.isSessionSupported?.("immersive-ar");
@@ -439,7 +369,7 @@ function placeBoardsFromReticle() {
   }, 200);
 }
 
-function moveBoards() {
+export function moveBoards() {
   // Aktuellen Spielzustand sichern
   const savedState = getSaveSnapshot();
 
@@ -476,12 +406,12 @@ function moveBoards() {
 }
 
 /* ---------- Spielsteuerung ---------- */
-function rotateShip() {
+export function rotateShip() {
   orientation = (orientation === "H") ? "V" : "H";
   updateFleetUI();
 }
 
-function undoShip() {
+export function undoShip() {
   if (!playerBoard || !fleet) return;
   const last = playerBoard.undoLastShip();
   if (!last) return;
@@ -489,7 +419,7 @@ function undoShip() {
   updateFleetUI();
 }
 
-function startGame() {
+export function startGame() {
   if (!fleet || !playerBoard || !enemyBoard) return;
   randomizeFleet(enemyBoard, [5,4,3,3,2]);
   setPhase("play");
@@ -633,7 +563,7 @@ function gameOver(winner) {
 }
 
 /* ---------- Reset ---------- */
-function resetAll() {
+export function resetAll() {
   picker.setBoard(null);
   if (playerBoard) { playerBoard.removeFromScene(scene); playerBoard.dispose(); }
   if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
@@ -652,21 +582,6 @@ function resetAll() {
 }
 
 /* ---------- UI Helfer ---------- */
-function updateFleetUI() {
-  phaseEl.textContent = phase + (phase === "setup" ? ` (Ori: ${orientation})` : "");
-  if (!fleet) { fleetEl.innerHTML = ""; btnUndo.disabled = true; if (btnStartGame) btnStartGame.disabled = true; return; }
-  const remain = fleet.summary();
-  const orderStr = fleet.order.length ? `Als Nächstes: ${fleet.order[0]}er` : "–";
-  const parts = [];
-  for (const L of [5,4,3,2]) {
-    const n = remain[L] || 0;
-    parts.push(`<span class="pill">${L}er × ${n}</span>`);
-  }
-  fleetEl.innerHTML = `${parts.join(" ")} &nbsp; | &nbsp; <strong>${orderStr}</strong>`;
-  btnUndo.disabled = fleet.placed.length === 0;
-  if (btnStartGame) btnStartGame.disabled = !fleet.complete();
-}
-
 /* ---------- XR Helpers ---------- */
 function pickActiveInputSource() {
   if (!xrSession) return null;
@@ -780,7 +695,7 @@ function inBounds(board, r, c) {
 }
 
 /* ---------- Audio: Mini-Synth (ohne Dateien) ---------- */
-function initAudio() {
+export function initAudio() {
   try {
     if (!audioEnabled) return;
     if (!audioCtx) {
@@ -877,7 +792,7 @@ function getSaveSnapshot() {
   return snap;
 }
 
-function saveState(manual=false) {
+export function saveState(manual=false) {
   try {
     const data = getSaveSnapshot();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -887,7 +802,7 @@ function saveState(manual=false) {
   }
 }
 
-function loadState() {
+export function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) { statusEl.textContent = "Kein gespeicherter Stand gefunden."; return; }
@@ -916,7 +831,7 @@ function loadState() {
     btnReset.disabled = false;
     if (btnMoveBoards) btnMoveBoards.disabled = false;
 
-    aimMode = data.aimMode || "gaze"; setAimMode(aimMode);
+    setAimMode(data.aimMode || "gaze");
     orientation = data.orientation || "H";
 
     // Fleet Manager wiederherstellen
@@ -1004,11 +919,16 @@ function loadState() {
   }
 }
 
-function clearState() {
+export function clearState() {
   try {
     localStorage.removeItem(STORAGE_KEY);
     statusEl.textContent = "Lokaler Speicher gelöscht.";
   } catch (e) {
     statusEl.textContent = "Löschen fehlgeschlagen: " + (e?.message || e);
   }
+}
+
+export function requestLoad() {
+  if (!xrSession) { pendingLoad = true; startAR("regular"); return; }
+  loadState();
 }
