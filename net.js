@@ -28,9 +28,11 @@ let latencyHigh = false;
 let prevRemoteTurn = false;
 let connInfo = null;
 let connectTimer = null;
+let connectAttempts = 0;
 
 function emitConnect() {
   clearConnectTimeout();
+  connectAttempts = 0;
   connectHandlers.forEach(cb => {
     try { cb(); } catch {}
   });
@@ -68,10 +70,12 @@ function emitStatus(msg) {
 
 function startConnectTimeout() {
   clearConnectTimeout();
+  const delay = Math.min(5000 * Math.pow(2, connectAttempts), 30000);
+  connectAttempts++;
   connectTimer = setTimeout(() => {
     console.warn('Connection timed out');
     emitDisconnect('timeout');
-  }, 5000);
+  }, delay);
 }
 
 function clearConnectTimeout() {
@@ -322,27 +326,34 @@ export async function createRoom() {
   startConnectTimeout();
 }
 
-export async function joinRoom(code) {
+export async function joinRoom(code, { asHost = false } = {}) {
   createSocket();
-  
+
   if (socket.readyState !== WebSocket.OPEN) {
     await new Promise((resolve) => {
       socket.addEventListener("open", resolve, { once: true });
     });
   }
-  
+
   pc = new RTCPeerConnection({
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
   });
-  
+
   pc.ondatachannel = (e) => {
     channel = e.channel;
 
     channel.onopen = () => {
       console.log('Data channel opened (join)');
       clearConnectTimeout();
-      setRemoteTurn(true);
-      setTurn('ai');
+      if (asHost) {
+        setRemoteTurn(false);
+        setTurn('player');
+        setNetPlayerId(0);
+      } else {
+        setRemoteTurn(true);
+        setTurn('ai');
+        setNetPlayerId(1);
+      }
       emitConnect();
     };
     
@@ -373,8 +384,8 @@ export async function joinRoom(code) {
   };
 
   socket.send(JSON.stringify({ type: "join", code }));
-  setNetPlayerId(1);
-  connInfo = { mode: 'join', code };
+  connInfo = { mode: asHost ? 'host' : 'join', code };
+  if (!asHost) setNetPlayerId(1);
   startConnectTimeout();
 }
 
@@ -453,7 +464,10 @@ export function onLatency(cb) {
 
 export async function reconnect() {
   if (!connInfo) return;
-  if (connInfo.mode === 'host') return await createRoom();
+  if (connInfo.mode === 'host') {
+    if (connInfo.code) return await joinRoom(connInfo.code, { asHost: true });
+    return await createRoom();
+  }
   if (connInfo.mode === 'join') return await joinRoom(connInfo.code);
 }
 
