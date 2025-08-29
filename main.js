@@ -243,33 +243,6 @@ export function resetAll() {
   playEarcon("reset");
 }
 
-function allCells(n) { const arr = []; for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) arr.push([r, c]); return arr; }
-
-/* ---------- KI-Flottenplatzierung ---------- */
-export function randomizeFleet(board, lengths) {
-  for (const L of lengths) {
-    let placed = false, guard = 0;
-    while (!placed && guard++ < 800) {
-      const orientation = Math.random() < 0.5 ? "H" : "V";
-      const row = Math.floor(Math.random() * board.cells);
-      const col = Math.floor(Math.random() * board.cells);
-      if (board.canPlaceShip(row, col, L, orientation)) {
-        board.placeShip(row, col, L, orientation);
-        placed = true;
-      }
-    }
-    if (!placed) {
-      outer: for (let r = 0; r < board.cells; r++) {
-        for (let c = 0; c < board.cells; c++) {
-          for (const o of ["H","V"]) {
-            if (board.canPlaceShip(r, c, L, o)) { board.placeShip(r, c, L, o); placed = true; break outer; }
-          }
-        }
-      }
-    }
-  }
-}
-
 /* ---------- Sunk: umliegende Felder markieren ---------- */
 export function markAroundShip(board, ship, setShots=true) {
   const r0 = ship.row, c0 = ship.col;
