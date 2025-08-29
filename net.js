@@ -236,6 +236,10 @@ function createSocket() {
         socket.send(JSON.stringify({ type: "answer", answer, code: roomCode }));
         startConnectTimeout();
       } else if (msg.type === "answer") {
+        if (pc.signalingState !== "have-local-offer") {
+          console.warn("Unexpected answer in state", pc.signalingState);
+          return;
+        }
         await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
         remoteDescSet = true;
         for (const c of pendingRemoteCandidates) {
