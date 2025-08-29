@@ -22,6 +22,9 @@ import {
   picker,
   playerBoard,
   enemyBoard,
+  remoteBoard,
+  remoteTurn,
+  netPlayerId,
   fleet,
   orientation,
   turn
@@ -141,8 +144,13 @@ function onXRFrame(time, frame) {
       playerBoard.showGhost(cell.row, cell.col, L, orientation, valid);
     } else if (playerBoard) { playerBoard.clearGhost(); }
   } else if (phase === "play") {
-    if (turn === "player") { picker.setBoard(enemyBoard); updateHover(); }
-    else { picker.setBoard(null); }
+    if (netPlayerId !== null) {
+      if (!remoteTurn) { picker.setBoard(remoteBoard); updateHover(); }
+      else { picker.setBoard(null); }
+    } else {
+      if (turn === "player") { picker.setBoard(enemyBoard); updateHover(); }
+      else { picker.setBoard(null); }
+    }
   }
 
   playerBoard?.updateEffects?.(dt);
