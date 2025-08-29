@@ -176,7 +176,7 @@ export function startGame() {
   setPhase("play");
   const startTurn = netPlayerId === null ? 'player' : (netPlayerId === 0 ? 'player' : 'ai');
   setTurn(startTurn);
-  picker.setBoard(enemyBoard);
+  picker.setBoard(netPlayerId !== null ? remoteBoard : enemyBoard);
   playerBoard.clearGhost();
   statusEl.textContent = "Spielphase: Ziel auf das rechte Brett und Trigger drücken.";
   playEarcon("start");
