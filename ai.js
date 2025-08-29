@@ -7,7 +7,7 @@ import {
   markAroundShip,
   gameOver,
   inBounds
-} from "./main.js";
+} from "./state.js";
 import { playEarcon } from "./audio.js";
 
 export function makeAIState(n) {

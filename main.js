@@ -44,6 +44,21 @@ import {
 import { aiTurn, makeAIState } from "./ai.js";
 import { initAudio, playEarcon, buzzFromEvent } from "./audio.js";
 import { saveState, loadState } from "./storage.js";
+import {
+  renderer, setRenderer,
+  scene, setScene,
+  camera, setCamera,
+  reticle, setReticle,
+  picker, setPicker,
+  playerBoard, setPlayerBoard,
+  enemyBoard, setEnemyBoard,
+  fleet, setFleet,
+  orientation, setOrientation,
+  turn,
+  aiState, setAIState,
+  markAroundShip,
+  gameOver
+} from "./state.js";
 
 export { startAR };
 export {
@@ -56,30 +71,7 @@ export {
   setTurn
 };
 
-export let renderer, scene, camera;
-export let reticle = null;
 
-// Zwei Boards
-export let playerBoard = null;
-export function setPlayerBoard(v) { playerBoard = v; }
-export let enemyBoard = null;
-export function setEnemyBoard(v) { enemyBoard = v; }
-
-export let picker = null;
-export let fleet = null;
-export function setFleet(v) { fleet = v; }
-
-// Setup-State
-export let orientation = "H"; // "H" oder "V"
-export function setOrientation(v) { orientation = v; }
-
-// Runden-State
-export let turn = "player"; // "player" | "ai"
-export function setTurnValue(v) { turn = v; }
-
-// --- NEU: KI-Zustand (Hunt/Target) ---
-export let aiState = null;
-export function setAIState(v) { aiState = v; }
 
 // Laden vorm AR-Start vormerken
 let pendingLoad = false;
@@ -93,13 +85,13 @@ export function checkPendingLoad() {
 }
 
 function initGL() {
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  setRenderer(new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true }));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.xr.enabled = true;
 
-  scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 20);
+  setScene(new THREE.Scene());
+  setCamera(new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 20));
   scene.add(camera);
 
   const ambient = new THREE.HemisphereLight(0xffffff, 0x222244, 0.8);
@@ -109,13 +101,13 @@ function initGL() {
   const ringGeo = new THREE.RingGeometry(0.07, 0.075, 48);
   ringGeo.rotateX(-Math.PI / 2);
   const ringMat = new THREE.MeshBasicMaterial({ color: 0x7bdcff, transparent: true, opacity: 0.9 });
-  reticle = new THREE.Mesh(ringGeo, ringMat);
+  setReticle(new THREE.Mesh(ringGeo, ringMat));
   reticle.matrixAutoUpdate = false;
   reticle.visible = false;
   scene.add(reticle);
 
   // Picker
-  picker = new Picker(scene);
+  setPicker(new Picker(scene));
 
   window.addEventListener("resize", onResize);
   setPhase("placement");
@@ -215,24 +207,15 @@ export function onSelect(e) {
 }
 
 
-/* ---------- Game Over ---------- */
-export function gameOver(winner) {
-  setPhase("gameover");
-  picker.setBoard(null);
-  const msg = (winner === "player") ? "Du hast gewonnen! 🎉" : "KI hat gewonnen.";
-  statusEl.textContent = msg + " Tippe 'Zurücksetzen' für ein neues Spiel.";
-  playEarcon(winner === "player" ? "win" : "lose");
-}
-
 /* ---------- Reset ---------- */
 export function resetAll() {
   picker.setBoard(null);
   if (playerBoard) { playerBoard.removeFromScene(scene); playerBoard.dispose(); }
   if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
 
-  playerBoard = null; enemyBoard = null;
-  fleet = null; aiState = null;
-  orientation = "H";
+  setPlayerBoard(null); setEnemyBoard(null);
+  setFleet(null); setAIState(null);
+  setOrientation("H");
   hoverCellEl.textContent = "–";
   lastPickEl.textContent = "–";
   setPhase("placement");
@@ -241,36 +224,6 @@ export function resetAll() {
   if (btnMoveBoards) btnMoveBoards.disabled = true;
   statusEl.textContent = "Zurückgesetzt. Richte Reticle auf die Fläche und drücke Trigger zum Platzieren.";
   playEarcon("reset");
-}
-
-/* ---------- Sunk: umliegende Felder markieren ---------- */
-export function markAroundShip(board, ship, setShots=true) {
-  const r0 = ship.row, c0 = ship.col;
-  const len = ship.length;
-  const horiz = ship.orientation === "H";
-
-  const rStart = r0 - 1;
-  const cStart = c0 - 1;
-  const rEnd   = horiz ? r0 + 1 : r0 + len;
-  const cEnd   = horiz ? c0 + len : c0 + 1;
-
-  for (let r = rStart; r <= rEnd; r++) {
-    for (let c = cStart; c <= cEnd; c++) {
-      const isShipCell = horiz
-        ? (r === r0 && c >= c0 && c < c0 + len)
-        : (c === c0 && r >= r0 && r < r0 + len);
-      if (!isShipCell && inBounds(board, r, c)) {
-        if (board.shots[r][c] === 0) {
-          if (setShots) board.shots[r][c] = 1;
-          board.markCell(r, c, 0xb0b6bf, 0.65, 2.8);
-        }
-      }
-    }
-  }
-}
-
-export function inBounds(board, r, c) {
-  return r >= 0 && r < board.cells && c >= 0 && c < board.cells;
 }
 
 export function requestLoad() {

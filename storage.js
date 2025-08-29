@@ -27,10 +27,10 @@ import {
   setAIState,
   reticle,
   scene,
-  picker,
-  resetAll,
-  setTurn
-} from "./main.js";
+  picker
+} from "./state.js";
+import { resetAll } from "./main.js";
+import { setTurn } from "./gameSetup.js";
 
 export const STORAGE_KEY = "ar-battleship-v1";
 

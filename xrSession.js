@@ -24,7 +24,9 @@ import {
   enemyBoard,
   fleet,
   orientation,
-  turn,
+  turn
+} from "./state.js";
+import {
   onSelect,
   onSqueeze,
   checkPendingLoad
