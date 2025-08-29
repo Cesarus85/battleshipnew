@@ -265,6 +265,7 @@ function createSocket() {
 }
 
 export async function createRoom() {
+  startConnectTimeout();
   createSocket();
   
   if (socket.readyState !== WebSocket.OPEN) {
@@ -323,10 +324,10 @@ export async function createRoom() {
 
   setNetPlayerId(0);
   connInfo = { mode: 'host' };
-  startConnectTimeout();
 }
 
 export async function joinRoom(code, { asHost = false } = {}) {
+  startConnectTimeout();
   createSocket();
 
   if (socket.readyState !== WebSocket.OPEN) {
@@ -386,7 +387,6 @@ export async function joinRoom(code, { asHost = false } = {}) {
   socket.send(JSON.stringify({ type: "join", code }));
   connInfo = { mode: asHost ? 'host' : 'join', code };
   if (!asHost) setNetPlayerId(1);
-  startConnectTimeout();
 }
 
 export function send(data) {
