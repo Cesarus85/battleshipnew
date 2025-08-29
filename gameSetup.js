@@ -30,7 +30,7 @@ import {
   picker,
   aiState,
   setAIState
-} from "./main.js";
+} from "./state.js";
 import { STORAGE_KEY, saveState, loadState, getSaveSnapshot } from "./storage.js";
 import { playEarcon } from "./audio.js";
 

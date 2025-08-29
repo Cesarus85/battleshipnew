@@ -6,10 +6,9 @@ import {
   moveBoards,
   undoShip,
   startGame,
-  requestLoad,
-  orientation,
-  fleet
+  requestLoad
 } from './main.js';
+import { orientation, fleet } from './state.js';
 import { saveState, clearState } from './storage.js';
 import { initAudio } from './audio.js';
 
