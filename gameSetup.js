@@ -139,16 +139,6 @@ export function undoShip() {
   updateFleetUI();
 }
 
-function allCells(n) {
-  const arr = [];
-  for (let r = 0; r < n; r++) {
-    for (let c = 0; c < n; c++) {
-      arr.push([r, c]);
-    }
-  }
-  return arr;
-}
-
 /* ---------- KI-Flottenplatzierung ---------- */
 function randomizeFleet(board, lengths) {
   for (const L of lengths) {
