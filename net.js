@@ -205,6 +205,7 @@ function createSocket() {
         console.error('Server error:', msg.message);
       } else if (msg.type === 'peerJoined') {
         console.log('Peer joined the room');
+        startConnectTimeout();
       } else if (msg.type === 'peerDisconnected') {
         console.log('Peer disconnected');
         emitDisconnect();
@@ -226,6 +227,7 @@ function createSocket() {
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         socket.send(JSON.stringify({ type: "answer", answer, code: roomCode }));
+        startConnectTimeout();
       } else if (msg.type === "answer") {
         await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
         remoteDescSet = true;
@@ -265,7 +267,6 @@ function createSocket() {
 }
 
 export async function createRoom() {
-  startConnectTimeout();
   createSocket();
   
   if (socket.readyState !== WebSocket.OPEN) {
@@ -327,7 +328,6 @@ export async function createRoom() {
 }
 
 export async function joinRoom(code, { asHost = false } = {}) {
-  startConnectTimeout();
   createSocket();
 
   if (socket.readyState !== WebSocket.OPEN) {
