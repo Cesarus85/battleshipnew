@@ -68,6 +68,12 @@ wss.on('connection', ws => {
       const index = room.peers.indexOf(ws);
       if (index !== -1) {
         room.peers.splice(index, 1);
+        // notify remaining peers about the disconnection
+        for (const peer of room.peers) {
+          if (peer.readyState === WebSocket.OPEN) {
+            peer.send(JSON.stringify({ type: 'peerDisconnected' }));
+          }
+        }
         if (room.peers.length === 0) {
           rooms.delete(code);
           console.log('Room deleted:', code);
