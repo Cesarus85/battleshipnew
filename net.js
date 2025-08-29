@@ -10,6 +10,7 @@ let msgHandler = () => {};
 const disconnectHandlers = [];
 const connectHandlers = [];
 const roomCodeHandlers = [];
+const statusHandlers = [];
 
 let roomCode = null;
 let pendingOffer = null;
@@ -24,8 +25,10 @@ let latencyHandler = () => {};
 let latencyHigh = false;
 let prevRemoteTurn = false;
 let connInfo = null;
+let connectTimer = null;
 
 function emitConnect() {
+  clearConnectTimeout();
   connectHandlers.forEach(cb => {
     try { cb(); } catch {}
   });
@@ -39,7 +42,8 @@ function emitRoomCode(code) {
   });
 }
 
-function emitDisconnect() {
+function emitDisconnect(reason) {
+  clearConnectTimeout();
   pending.forEach(p => clearTimeout(p.timer));
   pending.clear();
   received.clear();
@@ -47,9 +51,30 @@ function emitDisconnect() {
   socket = null;
   pc = null;
   channel = null;
-  disconnectHandlers.forEach(cb => { 
-    try { cb(); } catch {} 
+  disconnectHandlers.forEach(cb => {
+    try { cb(reason); } catch {}
   });
+}
+
+function emitStatus(msg) {
+  statusHandlers.forEach(cb => {
+    try { cb(msg); } catch {}
+  });
+}
+
+function startConnectTimeout() {
+  clearConnectTimeout();
+  connectTimer = setTimeout(() => {
+    console.warn('Connection timed out');
+    emitDisconnect('timeout');
+  }, 5000);
+}
+
+function clearConnectTimeout() {
+  if (connectTimer) {
+    clearTimeout(connectTimer);
+    connectTimer = null;
+  }
 }
 
 function sendAck(id) {
@@ -223,12 +248,13 @@ export async function createRoom() {
   });
   
   channel = pc.createDataChannel("data");
-  
-  channel.onopen = () => { 
+
+  channel.onopen = () => {
     console.log('Data channel opened');
-    setRemoteTurn(false); 
-    setTurn('player'); 
-    emitConnect(); 
+    clearConnectTimeout();
+    setRemoteTurn(false);
+    setTurn('player');
+    emitConnect();
   };
   
   channel.onmessage = (e) => { 
@@ -264,9 +290,10 @@ export async function createRoom() {
   await pc.setLocalDescription(offer);
   pendingOffer = offer;
   socket.send(JSON.stringify({ type: "create" }));
-  
+
   setNetPlayerId(0);
   connInfo = { mode: 'host' };
+  startConnectTimeout();
 }
 
 export async function joinRoom(code) {
@@ -284,12 +311,13 @@ export async function joinRoom(code) {
   
   pc.ondatachannel = (e) => {
     channel = e.channel;
-    
-    channel.onopen = () => { 
+
+    channel.onopen = () => {
       console.log('Data channel opened (join)');
-      setRemoteTurn(true); 
-      setTurn('ai'); 
-      emitConnect(); 
+      clearConnectTimeout();
+      setRemoteTurn(true);
+      setTurn('ai');
+      emitConnect();
     };
     
     channel.onmessage = (ev) => { 
@@ -317,15 +345,17 @@ export async function joinRoom(code) {
   pc.onconnectionstatechange = () => {
     console.log('Connection state:', pc.connectionState);
   };
-  
+
   socket.send(JSON.stringify({ type: "join", code }));
   setNetPlayerId(1);
   connInfo = { mode: 'join', code };
+  startConnectTimeout();
 }
 
 export function send(data) {
   if (!channel || channel.readyState !== "open") {
     console.warn('Cannot send data: channel not open');
+     emitStatus('Data-Channel nicht offen');
     return;
   }
   
@@ -377,12 +407,16 @@ export function onRoomCode(cb) {
   roomCodeHandlers.push(cb);
 }
 
-export function onLatency(cb) { 
-  latencyHandler = cb; 
+export function onLatency(cb) {
+  latencyHandler = cb;
 }
 
 export async function reconnect() {
   if (!connInfo) return;
   if (connInfo.mode === 'host') return await createRoom();
   if (connInfo.mode === 'join') return await joinRoom(connInfo.code);
+}
+
+export function onStatus(cb) {
+  statusHandlers.push(cb);
 }
