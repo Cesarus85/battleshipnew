@@ -30,13 +30,13 @@ import {
   STORAGE_KEY,
   saveState,
   loadState,
-  playEarcon,
   getSaveSnapshot,
   randomizeFleet,
   makeAIState,
   aiState,
   setAIState
 } from "./main.js";
+import { playEarcon } from "./audio.js";
 
 export function onSqueeze() {
   if (phase === "setup") { rotateShip(); playEarcon("rotate"); saveState(); }
