@@ -320,6 +320,19 @@ export class Board {
     }
   }
 
+  registerShot(row, col, result) {
+    if (this.shots[row][col] === 1) return;
+    this.shots[row][col] = 1;
+    if (result === "hit" || result === "sunk") {
+      if (this.hits[row][col] !== 1) {
+        this.hits[row][col] = 1;
+        this.hitCount++;
+        const ship = this.getShipAt(row, col);
+        if (ship) ship.hits++;
+      }
+    }
+  }
+
   allShipsSunk() {
     return this.hitCount >= this.totalShipCells && this.totalShipCells > 0;
   }
