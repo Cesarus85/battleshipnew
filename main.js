@@ -414,16 +414,49 @@ function placeBoardsFromReticle() {
   setPhase("setup");
   updateFleetUI();
   statusEl.textContent = "Schiffe setzen (linkes Brett): Ziel → Trigger, Squeeze rotiert (H/V).";
+  
+  // Nach Brett-Verschiebung automatisch Spielzustand wiederherstellen
+  setTimeout(() => {
+    try {
+      const tempData = localStorage.getItem(STORAGE_KEY + "_move_temp");
+      if (tempData) {
+        const savedState = JSON.parse(tempData);
+        localStorage.removeItem(STORAGE_KEY + "_move_temp");
+        
+        // Neue Matrix in gespeicherten Daten einsetzen
+        if (savedState.playerBoard) {
+          savedState.playerBoard.matrix = Array.from(baseM.elements);
+        }
+        
+        // Temporär speichern und laden
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(savedState));
+        setTimeout(() => loadState(), 100);
+        statusEl.textContent = "Bretter verschoben und Spielzustand wiederhergestellt.";
+      }
+    } catch (e) {
+      console.warn("State restore after move failed:", e);
+    }
+  }, 200);
 }
 
 function moveBoards() {
+  // Aktuellen Spielzustand sichern
+  const savedState = getSaveSnapshot();
+
   picker.setBoard(null);
   if (playerBoard) { playerBoard.removeFromScene(scene); playerBoard.dispose(); }
   if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
+  
+  // Temporary state clearing for repositioning
+  const tempFleet = fleet;
+  const tempAiState = aiState;
+  const tempPhase = phase;
+  const tempTurn = turn;
+  
   playerBoard = null; enemyBoard = null;
   fleet = null; aiState = null;
   lastHitPose = null;
-  reticle.visible = false;
+  reticle.visible = true;
   btnReset.disabled = true;
   if (btnMoveBoards) btnMoveBoards.disabled = true;
   setPhase("placement");
@@ -431,8 +464,15 @@ function moveBoards() {
   setTurn("player");
   hoverCellEl.textContent = "–";
   lastPickEl.textContent = "–";
-  statusEl.textContent = "Bretter entfernt. Richte Reticle auf die Fläche und drücke Trigger zum Platzieren. Speichere danach manuell.";
+  statusEl.textContent = "Bretter entfernt. Richte Reticle auf die neue Position und drücke Trigger. Der Spielzustand wird wiederhergestellt.";
   playEarcon("reset");
+  
+  // Spielzustand für automatische Wiederherstellung speichern
+  try {
+    localStorage.setItem(STORAGE_KEY + "_move_temp", JSON.stringify(savedState));
+  } catch (e) {
+    console.warn("Temp save failed:", e);
+  }
 }
 
 /* ---------- Spielsteuerung ---------- */
@@ -803,13 +843,35 @@ function buzzFromEvent(e, intensity=0.5, durationMs=80) {
 
 /* ---------- Persistenz (LocalStorage) ---------- */
 function getSaveSnapshot() {
-  const snap = { v: 1, aimMode, orientation, playerBoard: null };
+  const snap = { v: 2, aimMode, orientation, phase, turn, playerBoard: null, enemyBoard: null, aiState: null };
   if (playerBoard) {
     snap.playerBoard = {
       size: playerBoard.size,
       cells: playerBoard.cells,
       matrix: Array.from(playerBoard.matrix.elements),
-      ships: fleet ? fleet.placed.map(s => ({ row: s.row, col: s.col, length: s.length, orientation: s.orientation })) : []
+      ships: fleet ? fleet.placed.map(s => ({ row: s.row, col: s.col, length: s.length, orientation: s.orientation })) : [],
+      shots: playerBoard.shots.map(row => [...row]),
+      hits: playerBoard.hits.map(row => [...row]),
+      hitCount: playerBoard.hitCount
+    };
+  }
+  if (enemyBoard) {
+    snap.enemyBoard = {
+      size: enemyBoard.size,
+      cells: enemyBoard.cells,
+      ships: enemyBoard.ships.map(s => ({ row: s.row, col: s.col, length: s.length, orientation: s.orientation })),
+      shots: enemyBoard.shots.map(row => [...row]),
+      hits: enemyBoard.hits.map(row => [...row]),
+      hitCount: enemyBoard.hitCount
+    };
+  }
+  if (aiState) {
+    snap.aiState = {
+      mode: aiState.mode,
+      hitTrail: [...aiState.hitTrail],
+      orientation: aiState.orientation,
+      targetQueue: [...aiState.targetQueue],
+      size: aiState.size
     };
   }
   return snap;
@@ -837,7 +899,7 @@ function loadState() {
 
     // Boards aus Matrix wiederherstellen
     const baseM = new THREE.Matrix4().fromArray(data?.playerBoard?.matrix || []);
-    if (!baseM) { statusEl.textContent = "Ungültige gespeicherte Pose."; return; }
+    if (!baseM || baseM.elements.every(x => x === 0)) { statusEl.textContent = "Ungültige gespeicherte Pose."; return; }
 
     playerBoard = new Board(0.50, 10, { baseColor: 0x0d1b2a, shipColor: 0x5dade2, showShips: true });
     playerBoard.placeAtMatrix(baseM);
@@ -850,7 +912,6 @@ function loadState() {
     enemyBoard.placeAtMatrix(enemyM);
     enemyBoard.addToScene(scene);
 
-    picker.setBoard(playerBoard);
     reticle.visible = false;
     btnReset.disabled = false;
     if (btnMoveBoards) btnMoveBoards.disabled = false;
@@ -858,6 +919,7 @@ function loadState() {
     aimMode = data.aimMode || "gaze"; setAimMode(aimMode);
     orientation = data.orientation || "H";
 
+    // Fleet Manager wiederherstellen
     fleet = new FleetManager([5,4,3,3,2]);
     const placed = (data?.playerBoard?.ships || []);
     for (const s of placed) {
@@ -869,11 +931,76 @@ function loadState() {
       }
     }
 
-    setPhase("setup");
+    // Spielzustand wiederherstellen
+    const savedPhase = data.phase || "setup";
+    const savedTurn = data.turn || "player";
+
+    if (savedPhase === "play" && data.enemyBoard) {
+      // Feindliches Board mit Schiffen wiederherstellen
+      const enemyShips = data.enemyBoard.ships || [];
+      for (const s of enemyShips) {
+        if (enemyBoard.canPlaceShip(s.row, s.col, s.length, s.orientation)) {
+          enemyBoard.placeShip(s.row, s.col, s.length, s.orientation);
+        }
+      }
+
+      // Shots und Hits wiederherstellen
+      if (data.playerBoard.shots) {
+        playerBoard.shots = data.playerBoard.shots.map(row => [...row]);
+        playerBoard.hits = data.playerBoard.hits.map(row => [...row]);
+        playerBoard.hitCount = data.playerBoard.hitCount || 0;
+      }
+      if (data.enemyBoard.shots) {
+        enemyBoard.shots = data.enemyBoard.shots.map(row => [...row]);
+        enemyBoard.hits = data.enemyBoard.hits.map(row => [...row]);
+        enemyBoard.hitCount = data.enemyBoard.hitCount || 0;
+      }
+
+      // Marker auf den Boards wiederherstellen
+      for (let r = 0; r < playerBoard.cells; r++) {
+        for (let c = 0; c < playerBoard.cells; c++) {
+          if (playerBoard.shots[r][c] === 1) {
+            const color = playerBoard.hits[r][c] === 1 ? 0xe74c3c : 0x95a5a6;
+            playerBoard.markCell(r, c, color, 0.9);
+          }
+        }
+      }
+      for (let r = 0; r < enemyBoard.cells; r++) {
+        for (let c = 0; c < enemyBoard.cells; c++) {
+          if (enemyBoard.shots[r][c] === 1) {
+            const color = enemyBoard.hits[r][c] === 1 ? 0x2ecc71 : 0xd0d5de;
+            enemyBoard.markCell(r, c, color, 0.9);
+          }
+        }
+      }
+
+      // KI-Zustand wiederherstellen
+      if (data.aiState) {
+        aiState = {
+          mode: data.aiState.mode,
+          hitTrail: [...data.aiState.hitTrail],
+          orientation: data.aiState.orientation,
+          targetQueue: [...data.aiState.targetQueue],
+          size: data.aiState.size
+        };
+      } else {
+        aiState = makeAIState(playerBoard.cells);
+      }
+
+      setPhase("play");
+      setTurn(savedTurn);
+      picker.setBoard(savedTurn === "player" ? enemyBoard : null);
+      statusEl.textContent = "Spielstand geladen. Spiel läuft weiter.";
+    } else {
+      setPhase("setup");
+      picker.setBoard(playerBoard);
+      statusEl.textContent = "Spielstand geladen. Du kannst weiter Schiffe setzen oder 'Spiel starten' drücken.";
+    }
+
     updateFleetUI();
-    statusEl.textContent = "Spielstand geladen. Du kannst weiter Schiffe setzen oder 'Spiel starten' drücken.";
   } catch (e) {
     statusEl.textContent = "Laden fehlgeschlagen: " + (e?.message || e);
+    console.error("Load error:", e);
   }
 }
 
