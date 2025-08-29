@@ -9,6 +9,7 @@ let channel;
 let msgHandler = () => {};
 const disconnectHandlers = [];
 const connectHandlers = [];
+const roomCodeHandlers = [];
 
 let msgCounter = 0;
 const pending = new Map();
@@ -20,10 +21,16 @@ let latencyHigh = false;
 let prevRemoteTurn = false;
 let connInfo = null;
 
-function emitConnect() { 
-  connectHandlers.forEach(cb => { 
-    try { cb(); } catch {} 
-  }); 
+function emitConnect() {
+  connectHandlers.forEach(cb => {
+    try { cb(); } catch {}
+  });
+}
+
+function emitRoomCode(code) {
+  roomCodeHandlers.forEach(cb => {
+    try { cb(code); } catch {}
+  });
 }
 
 function emitDisconnect() {
@@ -143,8 +150,10 @@ function createSocket() {
       
       if (msg.type === 'created') {
         console.log('Room created with code:', msg.code);
+        emitRoomCode(msg.code);
       } else if (msg.type === 'joined') {
         console.log('Successfully joined room:', msg.code);
+        emitRoomCode(msg.code);
       } else if (msg.type === 'error') {
         console.error('Server error:', msg.message);
       } else if (msg.type === 'peerJoined') {
@@ -338,12 +347,16 @@ export function onMessage(cb) {
   msgHandler = cb; 
 }
 
-export function onDisconnect(cb) { 
-  disconnectHandlers.push(cb); 
+export function onDisconnect(cb) {
+  disconnectHandlers.push(cb);
 }
 
-export function onConnect(cb) { 
-  connectHandlers.push(cb); 
+export function onConnect(cb) {
+  connectHandlers.push(cb);
+}
+
+export function onRoomCode(cb) {
+  roomCodeHandlers.push(cb);
 }
 
 export function onLatency(cb) { 
