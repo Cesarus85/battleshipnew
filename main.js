@@ -44,7 +44,7 @@ import {
 import { aiTurn, makeAIState } from "./ai.js";
 import { initAudio, playEarcon, buzzFromEvent } from "./audio.js";
 import { saveState, loadState } from "./storage.js";
-import { send } from "./net.js";
+import { send, onDisconnect, reconnect, onLatency } from "./net.js";
 import {
   renderer, setRenderer,
   scene, setScene,
@@ -126,6 +126,27 @@ function onResize() {
 initGL();
 wireUI();
 diagnose().catch(()=>{});
+
+onLatency((ms) => {
+  if (ms && ms > 0) {
+    statusEl.textContent = `Netzwerk-Verzögerung: ${Math.round(ms)} ms`;
+  } else {
+    statusEl.textContent = '';
+  }
+});
+
+onDisconnect(async () => {
+  statusEl.textContent = 'Verbindung getrennt – versuche Reconnect…';
+  for (let i = 0; i < 3; i++) {
+    try {
+      await reconnect();
+      statusEl.textContent = 'Verbindung wiederhergestellt';
+      return;
+    } catch {}
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  statusEl.textContent = 'Reconnect fehlgeschlagen';
+});
 
 /* ---------- Select: präziser Ray + Audio/Haptik/FX ---------- */
 export function onSelect(e) {
