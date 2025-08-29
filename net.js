@@ -15,6 +15,7 @@ const statusHandlers = [];
 let roomCode = null;
 let pendingOffer = null;
 const pendingCandidates = [];
+const localCandidates = [];
 let remoteDescSet = false;
 const pendingRemoteCandidates = [];
 
@@ -206,6 +207,12 @@ function createSocket() {
       } else if (msg.type === 'peerJoined') {
         console.log('Peer joined the room');
         startConnectTimeout();
+        if (pc?.localDescription && roomCode) {
+          socket.send(JSON.stringify({ type: 'offer', offer: pc.localDescription, code: roomCode }));
+          for (const c of localCandidates) {
+            socket.send(JSON.stringify({ type: 'candidate', candidate: c, code: roomCode }));
+          }
+        }
       } else if (msg.type === 'peerDisconnected') {
         console.log('Peer disconnected');
         emitDisconnect();
@@ -306,6 +313,7 @@ export async function createRoom() {
   
   pc.onicecandidate = (e) => {
     if (e.candidate) {
+      localCandidates.push(e.candidate);
       if (roomCode) {
         socket.send(JSON.stringify({ type: "candidate", candidate: e.candidate, code: roomCode }));
       } else {
@@ -376,6 +384,7 @@ export async function joinRoom(code, { asHost = false } = {}) {
   
   pc.onicecandidate = (e) => {
     if (e.candidate) {
+      localCandidates.push(e.candidate);
       socket.send(JSON.stringify({ type: "candidate", candidate: e.candidate, code }));
     }
   };
