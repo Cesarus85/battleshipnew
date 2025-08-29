@@ -178,6 +178,8 @@ export function startGame() {
   setTurn(startTurn);
   picker.setBoard(netPlayerId !== null ? remoteBoard : enemyBoard);
   playerBoard.clearGhost();
+  // Nach dem Start sollen Treffer-Markierungen wieder über den Schiffen liegen
+  playerBoard.setShipRenderOrder?.(2);
   statusEl.textContent = "Spielphase: Ziel auf das rechte Brett und Trigger drücken.";
   playEarcon("start");
 

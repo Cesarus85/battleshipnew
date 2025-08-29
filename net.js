@@ -1,5 +1,6 @@
 import { getPlayerBoard, onPlayerBoardSet, getRemoteBoard, onRemoteBoardSet, markAroundShip, gameOver, setRemoteTurn, setNetPlayerId, remoteTurn } from './state.js';
 import { setTurn } from './gameSetup.js';
+import { phase } from './ui.js';
 
 const WS_URL = "wss://sportaktivfitness.de:1234";
 
@@ -64,6 +65,11 @@ function handleResultMessage(board, { row, col, result }) {
 }
 
 function handleShotMessage(board, { row, col }) {
+  if (phase === 'setup') {
+    // Schüsse vor Spielstart sammeln und später abarbeiten
+    shotQueue.push({ row, col });
+    return;
+  }
   const res = board.receiveShot(row, col);
   if (res.result === 'hit' || res.result === 'sunk') {
     board.markCell(row, col, 0xe74c3c, 0.95);
@@ -93,7 +99,7 @@ function flushResultQueue() {
 
 function flushShotQueue() {
   const board = getPlayerBoard();
-  if (!board || !localReady || !remoteReady) return;
+  if (!board || !localReady || !remoteReady || phase === 'setup') return;
   while (shotQueue.length) {
     const msg = shotQueue.shift();
     handleShotMessage(board, msg);

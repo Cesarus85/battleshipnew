@@ -228,7 +228,10 @@ export class Board {
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshBasicMaterial({ color: this.shipColor, transparent: true, opacity: 0.85, depthTest: true, depthWrite: false });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder = 2;
+    // Während der Setup-Phase sollen Schiffe über bereits gesetzten Markern liegen,
+    // damit Marker die Platzierung nicht verdecken. Nach Spielstart kann die
+    // Reihenfolge über setShipRenderOrder wieder auf 2 gesetzt werden.
+    mesh.renderOrder = this.showShips ? 4 : 2;
 
     const base = this.cellCenterLocal(row, col);
     const dx = orientation === "H" ? (length - 1) * 0.5 * this.cellSize : 0;
@@ -261,6 +264,12 @@ export class Board {
   }
 
   resetFleet() { while (this.ships.length) this.undoLastShip(); }
+
+  setShipRenderOrder(order) {
+    for (const s of this.ships) {
+      s.mesh.renderOrder = order;
+    }
+  }
 
   /* ---------- Marker ---------- */
   markCell(row, col, color = 0xffffff, opacity = 0.9, order = 3) {
