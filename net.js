@@ -1,4 +1,4 @@
-import { playerBoard, getRemoteBoard, onRemoteBoardSet, markAroundShip, gameOver, setRemoteTurn, setNetPlayerId, remoteTurn } from './state.js';
+import { getPlayerBoard, onPlayerBoardSet, getRemoteBoard, onRemoteBoardSet, markAroundShip, gameOver, setRemoteTurn, setNetPlayerId, remoteTurn } from './state.js';
 import { setTurn } from './gameSetup.js';
 
 const WS_URL = "wss://sportaktivfitness.de:1234";
@@ -13,6 +13,7 @@ const roomCodeHandlers = [];
 const statusHandlers = [];
 
 const resultQueue = [];
+const shotQueue = [];
 
 function handleResultMessage(board, { row, col, result }) {
   if (result === 'hit' || result === 'sunk') {
@@ -35,6 +36,25 @@ function handleResultMessage(board, { row, col, result }) {
   setTurn('ai');
 }
 
+function handleShotMessage(board, { row, col }) {
+  const res = board.receiveShot(row, col);
+  if (res.result === 'hit' || res.result === 'sunk') {
+    board.markCell(row, col, 0xe74c3c, 0.95);
+    board.pulseAtCell(row, col, 0xe74c3c, 0.6);
+    if (res.result === 'sunk' && res.ship) {
+      board.flashShip?.(res.ship, 1.0);
+      markAroundShip(board, res.ship, true);
+    }
+  } else if (res.result === 'miss') {
+    board.markCell(row, col, 0x95a5a6, 0.9);
+    board.pulseAtCell(row, col, 0x95a5a6, 0.5);
+  }
+  send({ type: 'result', row, col, result: res.result });
+  if (board.allShipsSunk()) gameOver('enemy');
+  setRemoteTurn(false);
+  setTurn('player');
+}
+
 function flushResultQueue() {
   const board = getRemoteBoard();
   if (!board) return;
@@ -44,7 +64,17 @@ function flushResultQueue() {
   }
 }
 
+function flushShotQueue() {
+  const board = getPlayerBoard();
+  if (!board) return;
+  while (shotQueue.length) {
+    const msg = shotQueue.shift();
+    handleShotMessage(board, msg);
+  }
+}
+
 onRemoteBoardSet(flushResultQueue);
+onPlayerBoardSet(flushShotQueue);
 
 let roomCode = null;
 let pendingOffer = null;
@@ -167,24 +197,12 @@ function handleMessage(obj) {
     const board = getRemoteBoard();
     board?.placeShip(obj.row, obj.col, obj.length, obj.orientation);
   } else if (obj.type === 'shot') {
-    if (!playerBoard) return;
-    const { row, col } = obj;
-    const res = playerBoard.receiveShot(row, col);
-    if (res.result === 'hit' || res.result === 'sunk') {
-      playerBoard.markCell(row, col, 0xe74c3c, 0.95);
-      playerBoard.pulseAtCell(row, col, 0xe74c3c, 0.6);
-      if (res.result === 'sunk' && res.ship) {
-        playerBoard.flashShip?.(res.ship, 1.0);
-        markAroundShip(playerBoard, res.ship, true);
-      }
-    } else if (res.result === 'miss') {
-      playerBoard.markCell(row, col, 0x95a5a6, 0.9);
-      playerBoard.pulseAtCell(row, col, 0x95a5a6, 0.5);
+    const board = getPlayerBoard();
+    if (!board) {
+      shotQueue.push(obj);
+      return;
     }
-    send({ type: 'result', row, col, result: res.result });
-    if (playerBoard.allShipsSunk()) gameOver('enemy');
-    setRemoteTurn(false);
-    setTurn('player');
+    handleShotMessage(board, obj);
   } else if (obj.type === 'result') {
     const { row, col, result } = obj;
     const board = getRemoteBoard();
