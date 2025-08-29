@@ -19,7 +19,15 @@ export function setPlayerBoard(v) { playerBoard = v; }
 export let enemyBoard = null;
 export function setEnemyBoard(v) { enemyBoard = v; }
 export let remoteBoard = null;
-export function setRemoteBoard(v) { remoteBoard = v; }
+const remoteBoardHandlers = [];
+export function setRemoteBoard(v) {
+  remoteBoard = v;
+  remoteBoardHandlers.forEach(cb => {
+    try { cb(v); } catch {}
+  });
+}
+export function onRemoteBoardSet(cb) { remoteBoardHandlers.push(cb); }
+export function getRemoteBoard() { return remoteBoard; }
 export let fleet = null;
 export function setFleet(v) { fleet = v; }
 
