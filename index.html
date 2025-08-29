@@ -14,6 +14,8 @@
     #turn { font-weight:600; }
     #persistBtns { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 0; }
     #persistBtns button { min-width:140px; }
+    #netUi { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+    #netUi input { flex:1 1 140px; padding:12px 14px; font-size:16px; border-radius:12px; border:0; }
   </style>
 </head>
 <body>
@@ -22,6 +24,12 @@
     <div id="ui">
       <h1>AR Battleship</h1>
       <p id="status">AR starten → Reticle auf Tisch → <strong>Trigger/Pinch platziert</strong> die Bretter.</p>
+
+      <div id="netUi" class="buttons">
+        <input id="roomCode" placeholder="Raumcode" />
+        <button id="btnCreateRoom">Raum erstellen</button>
+        <button id="btnJoinRoom">Raum beitreten</button>
+      </div>
 
       <div class="buttons">
         <button id="btnStart">AR starten</button>

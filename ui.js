@@ -11,6 +11,7 @@ import {
 import { orientation, fleet } from './state.js';
 import { saveState, clearState } from './storage.js';
 import { initAudio } from './audio.js';
+import { createRoom, joinRoom, onConnect, onDisconnect } from './net.js';
 
 export const canvas = document.getElementById('xr-canvas');
 export const overlay = document.getElementById('overlay');
@@ -26,6 +27,10 @@ export const aimInfoEl = document.getElementById('aimInfo');
 export const debugEl = document.getElementById('debug');
 export const btnDiag = document.getElementById('btnDiag');
 export const btnPerms = document.getElementById('btnPerms');
+
+export const roomCodeEl = document.getElementById('roomCode');
+export const btnCreateRoom = document.getElementById('btnCreateRoom');
+export const btnJoinRoom = document.getElementById('btnJoinRoom');
 
 export const phaseEl = document.getElementById('phase');
 export const fleetEl = document.getElementById('fleet');
@@ -63,6 +68,24 @@ export function wireUI() {
   btnSave?.addEventListener('click', () => { saveState(true); });
   btnLoad?.addEventListener('click', () => { requestLoad(); });
   btnClear?.addEventListener('click', () => { clearState(); });
+
+  btnCreateRoom?.addEventListener('click', async () => {
+    statusEl.textContent = 'Warte auf Gegner…';
+    try { await createRoom(); } catch (e) { statusEl.textContent = 'Fehler: ' + e.message; }
+  });
+
+  btnJoinRoom?.addEventListener('click', async () => {
+    const code = roomCodeEl?.value.trim();
+    if (!code) { statusEl.textContent = 'Code eingeben'; return; }
+    statusEl.textContent = 'Verbinde…';
+    try { await joinRoom(code); } catch (e) { statusEl.textContent = 'Fehler: ' + e.message; }
+  });
+
+  onConnect(() => {
+    statusEl.textContent = 'Verbunden';
+    hideAIOptions();
+  });
+  onDisconnect(() => { statusEl.textContent = 'Verbindung getrennt'; });
 }
 
 export function setAimMode(mode) {
@@ -107,4 +130,8 @@ export function updateFleetUI() {
   fleetEl.innerHTML = `${parts.join(' ')} &nbsp; | &nbsp; <strong>${orderStr}</strong>`;
   btnUndo.disabled = fleet.placed.length === 0;
   if (btnStartGame) btnStartGame.disabled = !fleet.complete();
+}
+
+function hideAIOptions() {
+  if (btnStartGame) btnStartGame.style.display = 'none';
 }
