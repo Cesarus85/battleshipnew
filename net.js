@@ -355,7 +355,7 @@ export async function joinRoom(code) {
 export function send(data) {
   if (!channel || channel.readyState !== "open") {
     console.warn('Cannot send data: channel not open');
-     emitStatus('Data-Channel nicht offen');
+    emitStatus('Data-Channel nicht offen');
     return;
   }
   
@@ -363,7 +363,13 @@ export function send(data) {
   const msg = { ...data, id };
   const payload = JSON.stringify(msg);
   
-  channel.send(payload);
+  try {
+    channel.send(payload);
+  } catch (err) {
+    console.error('Send failed:', err);
+    emitStatus('Senden fehlgeschlagen: ' + (err?.message || err));
+    return;
+  }
   
   const entry = {
     payload,
@@ -378,9 +384,17 @@ export function send(data) {
       if (entry.retries >= 5) {
         console.warn('Message delivery failed after 5 retries, giving up:', data.type);
         pending.delete(id);
+        emitStatus('Senden fehlgeschlagen: ' + data.type);
         return;
       }
-      channel.send(entry.payload);
+      try {
+        channel.send(entry.payload);
+      } catch (err) {
+        console.error('Resend failed:', err);
+        pending.delete(id);
+        emitStatus('Senden fehlgeschlagen: ' + (err?.message || err));
+        return;
+      }
       entry.sentAt = performance.now();
       entry.retries++;
       schedule();
