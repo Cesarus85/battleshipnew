@@ -11,7 +11,7 @@ import {
 import { orientation, fleet } from './state.js';
 import { saveState, clearState } from './storage.js';
 import { initAudio } from './audio.js';
-import { createRoom, joinRoom, onConnect, onDisconnect, onRoomCode } from './net.js';
+import { createRoom, joinRoom, onConnect, onDisconnect, onRoomCode, onStatus } from './net.js';
 
 export const canvas = document.getElementById('xr-canvas');
 export const overlay = document.getElementById('overlay');
@@ -46,6 +46,7 @@ export const btnClear = document.getElementById('btnClear');
 
 export let aimMode = 'gaze';
 export let phase = 'placement';
+let connected = false;
 
 export function wireUI() {
   btnStart.addEventListener('click', () => { initAudio(); startAR('regular'); });
@@ -82,10 +83,15 @@ export function wireUI() {
   });
 
   onConnect(() => {
+    connected = true;
     statusEl.textContent = 'Verbunden';
     hideAIOptions();
   });
-  onDisconnect(() => { statusEl.textContent = 'Verbindung getrennt'; });
+  onDisconnect((reason) => {
+    statusEl.textContent = reason === 'timeout' || !connected ? 'Verbindung fehlgeschlagen' : 'Verbindung getrennt';
+    connected = false;
+  });
+  onStatus(msg => { statusEl.textContent = msg; });
   onRoomCode(code => {
     if (roomCodeEl) roomCodeEl.value = code;
     if (statusEl.textContent.startsWith('Warte')) {
