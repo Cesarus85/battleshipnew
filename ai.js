@@ -5,10 +5,10 @@ import {
   aiState,
   setAIState,
   markAroundShip,
-  playEarcon,
   gameOver,
   inBounds
 } from "./main.js";
+import { playEarcon } from "./audio.js";
 
 export function makeAIState(n) {
   return {

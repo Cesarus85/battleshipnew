@@ -1,6 +1,5 @@
 // UI elements and helpers
 import {
-  initAudio,
   startAR,
   resetAll,
   rotateShip,
@@ -13,6 +12,7 @@ import {
   orientation,
   fleet
 } from './main.js';
+import { initAudio } from './audio.js';
 
 export const canvas = document.getElementById('xr-canvas');
 export const overlay = document.getElementById('overlay');
