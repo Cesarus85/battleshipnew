@@ -6,12 +6,11 @@ import {
   moveBoards,
   undoShip,
   startGame,
-  saveState,
   requestLoad,
-  clearState,
   orientation,
   fleet
 } from './main.js';
+import { saveState, clearState } from './storage.js';
 import { initAudio } from './audio.js';
 
 export const canvas = document.getElementById('xr-canvas');
