@@ -62,11 +62,11 @@ function aiOnHit(row, col) {
       minC = Math.min(minC, h.col); maxC = Math.max(maxC, h.col);
     }
     if (aiState.orientation === "H") {
-      aiEnqueueUnique({row: aiState.hitTrail[0].row, col: minC - 1});
-      aiEnqueueUnique({row: aiState.hitTrail[0].row, col: maxC + 1});
+      enqueueTargetIfNew({row: aiState.hitTrail[0].row, col: minC - 1});
+      enqueueTargetIfNew({row: aiState.hitTrail[0].row, col: maxC + 1});
     } else if (aiState.orientation === "V") {
-      aiEnqueueUnique({row: minR - 1, col: aiState.hitTrail[0].col});
-      aiEnqueueUnique({row: maxR + 1, col: aiState.hitTrail[0].col});
+      enqueueTargetIfNew({row: minR - 1, col: aiState.hitTrail[0].col});
+      enqueueTargetIfNew({row: maxR + 1, col: aiState.hitTrail[0].col});
     }
   }
 }
@@ -78,16 +78,19 @@ function aiOnSunk(ship, board) {
   setAIState(makeAIState(board.cells)); // Reset auf Hunt
 }
 
-function aiEnqueueUnique(cell) {
+function enqueueTargetIfNew(cell) {
   if (!cell) return;
+  const { row, col } = cell;
+  if (!playerBoard || !inBounds(playerBoard, row, col)) return;
+  if (aiState.targetQueue.some(t => t.row === row && t.col === col)) return;
   aiState.targetQueue.push(cell);
 }
 
 function enqueueCrossTargets(r, c) {
-  aiEnqueueUnique({row: r-1, col: c});
-  aiEnqueueUnique({row: r+1, col: c});
-  aiEnqueueUnique({row: r,   col: c-1});
-  aiEnqueueUnique({row: r,   col: c+1});
+  enqueueTargetIfNew({row: r-1, col: c});
+  enqueueTargetIfNew({row: r+1, col: c});
+  enqueueTargetIfNew({row: r,   col: c-1});
+  enqueueTargetIfNew({row: r,   col: c+1});
 }
 
 export function aiTurn() {
