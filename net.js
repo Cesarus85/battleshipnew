@@ -29,6 +29,7 @@ function handleResultMessage(board, { row, col, result }) {
     board.markCell(row, col, 0xd0d5de, 0.9);
     board.pulseAtCell(row, col, 0xd0d5de, 0.5);
   }
+  board.registerShot?.(row, col, result);
   if (board.allShipsSunk()) gameOver('player');
   setRemoteTurn(true);
   setTurn('ai');

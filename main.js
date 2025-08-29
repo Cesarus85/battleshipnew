@@ -196,6 +196,12 @@ export function onSelect(e) {
         playEarcon("error"); buzzFromEvent(e, 0.1, 30); return;
       }
       const { row, col } = cellEvt;
+      if (remoteBoard.shots[row][col] === 1) {
+        remoteBoard.pulseAtCell(row, col, 0xff4d4f, 0.6);
+        picker.flashHover(0xff4d4f);
+        statusEl.textContent = "Schon beschossen. Wähle eine andere Zelle.";
+        playEarcon("error"); buzzFromEvent(e, 0.1, 40); return;
+      }
       send({ type: 'shot', row, col });
       lastPickEl.textContent = remoteBoard.cellLabel(row, col);
       setRemoteTurn(true);
