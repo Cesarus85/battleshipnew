@@ -17,6 +17,8 @@ import {
 import {
   playerBoard,
   enemyBoard,
+  remoteBoard,
+  setRemoteBoard,
   fleet,
   orientation,
   turn,
@@ -29,7 +31,8 @@ import {
   reticle,
   picker,
   aiState,
-  setAIState
+  setAIState,
+  netPlayerId
 } from "./state.js";
 import { STORAGE_KEY, saveState, loadState, getSaveSnapshot } from "./storage.js";
 import { playEarcon } from "./audio.js";
@@ -54,6 +57,7 @@ export function placeBoardsFromReticle() {
   setEnemyBoard(new Board(0.50, 10, { baseColor: 0x1b1430, shipColor: 0xaa66ff, showShips: false }));
   enemyBoard.placeAtMatrix(enemyM);
   enemyBoard.addToScene(scene);
+  setRemoteBoard(enemyBoard);
 
   picker.setBoard(playerBoard);
 
@@ -166,19 +170,25 @@ function randomizeFleet(board, lengths) {
 
 export function startGame() {
   if (!fleet || !playerBoard || !enemyBoard) return;
-  randomizeFleet(enemyBoard, [5,4,3,3,2]);
+  if (netPlayerId === null) {
+    randomizeFleet(enemyBoard, [5,4,3,3,2]);
+  }
   setPhase("play");
-  setTurn("player");
+  const startTurn = netPlayerId === null ? 'player' : (netPlayerId === 0 ? 'player' : 'ai');
+  setTurn(startTurn);
   picker.setBoard(enemyBoard);
   playerBoard.clearGhost();
   statusEl.textContent = "Spielphase: Ziel auf das rechte Brett und Trigger drücken.";
   playEarcon("start");
 
-  // KI initialisieren
-  setAIState(makeAIState(playerBoard.cells));
+  if (netPlayerId === null) {
+    // KI initialisieren
+    setAIState(makeAIState(playerBoard.cells));
+  }
 }
 
 export function setTurn(t) {
   setTurnValue(t);
-  turnEl.textContent = (t === "player") ? "Du bist dran" : "KI ist dran …";
+  const enemyTxt = netPlayerId !== null ? 'Gegner ist dran …' : 'KI ist dran …';
+  turnEl.textContent = (t === 'player') ? 'Du bist dran' : enemyTxt;
 }

@@ -18,6 +18,8 @@ export let playerBoard = null;
 export function setPlayerBoard(v) { playerBoard = v; }
 export let enemyBoard = null;
 export function setEnemyBoard(v) { enemyBoard = v; }
+export let remoteBoard = null;
+export function setRemoteBoard(v) { remoteBoard = v; }
 export let fleet = null;
 export function setFleet(v) { fleet = v; }
 
@@ -28,6 +30,11 @@ export function setOrientation(v) { orientation = v; }
 // Turn state
 export let turn = 'player';
 export function setTurnValue(v) { turn = v; }
+export let remoteTurn = false;
+export function setRemoteTurn(v) { remoteTurn = v; }
+
+export let netPlayerId = null;
+export function setNetPlayerId(v) { netPlayerId = v; }
 
 // AI state
 export let aiState = null;
@@ -37,7 +44,8 @@ export function setAIState(v) { aiState = v; }
 export function gameOver(winner) {
   setPhase('gameover');
   if (picker) picker.setBoard(null);
-  const msg = winner === 'player' ? 'Du hast gewonnen! 🎉' : 'KI hat gewonnen.';
+  const enemyTxt = netPlayerId !== null ? 'Gegner hat gewonnen.' : 'KI hat gewonnen.';
+  const msg = winner === 'player' ? 'Du hast gewonnen! 🎉' : enemyTxt;
   statusEl.textContent = msg + " Tippe 'Zurücksetzen' für ein neues Spiel.";
   playEarcon(winner === 'player' ? 'win' : 'lose');
 }

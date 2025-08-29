@@ -44,6 +44,7 @@ import {
 import { aiTurn, makeAIState } from "./ai.js";
 import { initAudio, playEarcon, buzzFromEvent } from "./audio.js";
 import { saveState, loadState } from "./storage.js";
+import { send } from "./net.js";
 import {
   renderer, setRenderer,
   scene, setScene,
@@ -52,6 +53,9 @@ import {
   picker, setPicker,
   playerBoard, setPlayerBoard,
   enemyBoard, setEnemyBoard,
+  remoteBoard,
+  remoteTurn, setRemoteTurn,
+  netPlayerId,
   fleet, setFleet,
   orientation, setOrientation,
   turn,
@@ -139,6 +143,7 @@ export function onSelect(e) {
     if (!ok) { statusEl.textContent = "Ungültige Position (außerhalb, Kollision oder Berührung)."; playEarcon("error"); buzzFromEvent(e, 0.1, 40); return; }
 
     playerBoard.placeShip(row, col, L, orientation);
+    send({ type: 'place', row, col, length: L, orientation });
     fleet.advance(row, col, L, orientation);
     lastPickEl.textContent = playerBoard.cellLabel(row, col);
     updateFleetUI();
@@ -157,6 +162,26 @@ export function onSelect(e) {
   }
 
   if (phase === "play") {
+    if (netPlayerId !== null) {
+      if (remoteTurn) { statusEl.textContent = "Gegner ist dran …"; playEarcon("error"); return; }
+      const cellEvt = getCellFromSelectEvent(e, remoteBoard) || picker.hoverCell;
+      if (!cellEvt) {
+        const hover = picker.hoverCell;
+        if (hover) {
+          remoteBoard.pulseAtCell(hover.row, hover.col, 0xff4d4f, 0.6);
+          picker.flashHover(0xff4d4f);
+        }
+        statusEl.textContent = "Kein gültiges Feld getroffen – minimal nach unten neigen.";
+        playEarcon("error"); buzzFromEvent(e, 0.1, 30); return;
+      }
+      const { row, col } = cellEvt;
+      send({ type: 'shot', row, col });
+      lastPickEl.textContent = remoteBoard.cellLabel(row, col);
+      setRemoteTurn(true);
+      setTurn('ai');
+      return;
+    }
+
     if (turn !== "player") { statusEl.textContent = "KI ist dran …"; playEarcon("error"); return; }
     const cellEvt = getCellFromSelectEvent(e, enemyBoard) || picker.hoverCell;
     if (!cellEvt) {
