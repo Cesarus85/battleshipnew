@@ -15,6 +15,8 @@ const statusHandlers = [];
 let roomCode = null;
 let pendingOffer = null;
 const pendingCandidates = [];
+let remoteDescSet = false;
+const pendingRemoteCandidates = [];
 
 let msgCounter = 0;
 const pending = new Map();
@@ -51,6 +53,8 @@ function emitDisconnect(reason) {
   socket = null;
   pc = null;
   channel = null;
+  remoteDescSet = false;
+  pendingRemoteCandidates.length = 0;
   disconnectHandlers.forEach(cb => {
     try { cb(reason); } catch {}
   });
@@ -206,16 +210,38 @@ function createSocket() {
       
       if (msg.type === "offer") {
         await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+        remoteDescSet = true;
+        for (const c of pendingRemoteCandidates) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(c));
+          } catch (err) {
+            console.error('ICE candidate error:', err);
+          }
+        }
+        pendingRemoteCandidates.length = 0;
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         socket.send(JSON.stringify({ type: "answer", answer, code: roomCode }));
       } else if (msg.type === "answer") {
         await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
+        remoteDescSet = true;
+        for (const c of pendingRemoteCandidates) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(c));
+          } catch (err) {
+            console.error('ICE candidate error:', err);
+          }
+        }
+        pendingRemoteCandidates.length = 0;
       } else if (msg.type === "candidate") {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-        } catch (err) { 
-          console.error('ICE candidate error:', err); 
+        if (!remoteDescSet) {
+          pendingRemoteCandidates.push(msg.candidate);
+        } else {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+          } catch (err) {
+            console.error('ICE candidate error:', err);
+          }
         }
       }
     } catch (error) {
