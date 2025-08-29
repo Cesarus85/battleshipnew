@@ -5,6 +5,7 @@ let pc;
 let channel;
 let msgHandler = () => {};
 let disconnectHandler = () => {};
+let connectHandler = () => {};
 
 function ensureSocket() {
   if (socket) return;
@@ -24,6 +25,7 @@ function ensureSocket() {
     }
   };
   socket.onclose = () => disconnectHandler();
+  socket.onerror = () => disconnectHandler();
 }
 
 export async function createRoom() {
@@ -33,6 +35,7 @@ export async function createRoom() {
   }
   pc = new RTCPeerConnection();
   channel = pc.createDataChannel("data");
+  channel.onopen = () => connectHandler();
   channel.onmessage = (e) => msgHandler(e.data);
   channel.onclose = () => disconnectHandler();
   pc.onicecandidate = (e) => {
@@ -51,6 +54,7 @@ export async function joinRoom(code) {
   pc = new RTCPeerConnection();
   pc.ondatachannel = (e) => {
     channel = e.channel;
+    channel.onopen = () => connectHandler();
     channel.onmessage = (ev) => msgHandler(ev.data);
     channel.onclose = () => disconnectHandler();
   };
@@ -66,3 +70,4 @@ export function send(data) {
 
 export function onMessage(cb) { msgHandler = cb; }
 export function onDisconnect(cb) { disconnectHandler = cb; }
+export function onConnect(cb) { connectHandler = cb; }

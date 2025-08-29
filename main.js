@@ -59,7 +59,6 @@ import {
   markAroundShip,
   gameOver
 } from "./state.js";
-import { createRoom, joinRoom, send, onMessage, onDisconnect } from "./net.js";
 
 export { startAR };
 export {
@@ -123,15 +122,6 @@ function onResize() {
 initGL();
 wireUI();
 diagnose().catch(()=>{});
-
-const matchCode = prompt("Matchmaking-Code (leer = neuer Raum):");
-if (matchCode) {
-  joinRoom(matchCode);
-} else {
-  createRoom();
-}
-onMessage((data) => console.log("NET", data));
-onDisconnect(() => console.log("NET: Verbindung getrennt"));
 
 /* ---------- Select: präziser Ray + Audio/Haptik/FX ---------- */
 export function onSelect(e) {
