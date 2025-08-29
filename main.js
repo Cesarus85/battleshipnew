@@ -44,7 +44,7 @@ import {
 import { aiTurn, makeAIState } from "./ai.js";
 import { initAudio, playEarcon, buzzFromEvent } from "./audio.js";
 import { saveState, loadState } from "./storage.js";
-import { send, onDisconnect, reconnect, onLatency } from "./net.js";
+import { send, onDisconnect, reconnect, onLatency, onReady, setLocalReady, isRemoteReady } from "./net.js";
 import {
   renderer, setRenderer,
   scene, setScene,
@@ -135,17 +135,21 @@ onLatency((ms) => {
   }
 });
 
-onDisconnect(async () => {
-  statusEl.textContent = 'Verbindung getrennt – versuche Reconnect…';
-  for (let i = 0; i < 3; i++) {
-    try {
-      await reconnect();
+  onDisconnect(async () => {
+    statusEl.textContent = 'Verbindung getrennt – versuche Reconnect…';
+    for (let i = 0; i < 3; i++) {
+      try {
+        await reconnect();
       statusEl.textContent = 'Verbindung wiederhergestellt';
       return;
     } catch {}
     await new Promise(r => setTimeout(r, 1000));
   }
-  statusEl.textContent = 'Reconnect fehlgeschlagen';
+    statusEl.textContent = 'Reconnect fehlgeschlagen';
+  });
+
+onReady(() => {
+  if (phase === "setup") startGame();
 });
 
 /* ---------- Select: präziser Ray + Audio/Haptik/FX ---------- */
@@ -173,17 +177,18 @@ export function onSelect(e) {
     playEarcon("placeShip"); buzzFromEvent(e, 0.15, 40);
     saveState();
 
-    // Auto-Start
     if (fleet.complete()) {
-      statusEl.textContent = "Flotte komplett – Spiel startet …";
+      statusEl.textContent = "Flotte komplett – warte auf Gegner …";
       playEarcon("start");
-      setTimeout(() => { if (phase === "setup") startGame(); }, 300);
+      send({ type: 'ready' });
+      setLocalReady(true);
     }
     return;
   }
 
   if (phase === "play") {
     if (netPlayerId !== null) {
+      if (!isRemoteReady()) { statusEl.textContent = "Gegner noch nicht bereit …"; playEarcon("error"); return; }
       if (remoteTurn) { statusEl.textContent = "Gegner ist dran …"; playEarcon("error"); return; }
       const cellEvt = getCellFromSelectEvent(e, remoteBoard) || picker.hoverCell;
       if (!cellEvt) {

@@ -15,6 +15,33 @@ const statusHandlers = [];
 const resultQueue = [];
 const shotQueue = [];
 
+let localReady = false;
+let remoteReady = false;
+let bothReady = false;
+const readyHandlers = [];
+
+function checkReady() {
+  if (localReady && remoteReady && !bothReady) {
+    bothReady = true;
+    readyHandlers.forEach(cb => { try { cb(); } catch {} });
+    flushShotQueue();
+  }
+}
+
+export function setLocalReady(v) {
+  localReady = v;
+  checkReady();
+}
+
+export function onReady(cb) {
+  readyHandlers.push(cb);
+  checkReady();
+}
+
+export function isRemoteReady() {
+  return remoteReady;
+}
+
 function handleResultMessage(board, { row, col, result }) {
   if (result === 'hit' || result === 'sunk') {
     board.markCell(row, col, 0x2ecc71, 0.9);
@@ -66,7 +93,7 @@ function flushResultQueue() {
 
 function flushShotQueue() {
   const board = getPlayerBoard();
-  if (!board) return;
+  if (!board || !localReady || !remoteReady) return;
   while (shotQueue.length) {
     const msg = shotQueue.shift();
     handleShotMessage(board, msg);
@@ -193,26 +220,29 @@ function handleMessage(obj) {
     if (received.has(obj.id)) return;
     received.add(obj.id);
   }
-  if (obj.type === 'place') {
-    const board = getRemoteBoard();
-    board?.placeShip(obj.row, obj.col, obj.length, obj.orientation);
-  } else if (obj.type === 'shot') {
-    const board = getPlayerBoard();
-    if (!board) {
-      shotQueue.push(obj);
-      return;
+    if (obj.type === 'place') {
+      const board = getRemoteBoard();
+      board?.placeShip(obj.row, obj.col, obj.length, obj.orientation);
+    } else if (obj.type === 'shot') {
+      const board = getPlayerBoard();
+      if (!board || !localReady || !remoteReady) {
+        shotQueue.push(obj);
+        return;
+      }
+      handleShotMessage(board, obj);
+    } else if (obj.type === 'result') {
+      const { row, col, result } = obj;
+      const board = getRemoteBoard();
+      if (!board) {
+        resultQueue.push({ row, col, result });
+        return;
+      }
+      handleResultMessage(board, { row, col, result });
+    } else if (obj.type === 'ready') {
+      remoteReady = true;
+      checkReady();
     }
-    handleShotMessage(board, obj);
-  } else if (obj.type === 'result') {
-    const { row, col, result } = obj;
-    const board = getRemoteBoard();
-    if (!board) {
-      resultQueue.push({ row, col, result });
-      return;
-    }
-    handleResultMessage(board, { row, col, result });
   }
-}
 
 function createSocket() {
   if (socket) return;
