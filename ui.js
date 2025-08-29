@@ -11,7 +11,7 @@ import {
 import { orientation, fleet } from './state.js';
 import { saveState, clearState } from './storage.js';
 import { initAudio } from './audio.js';
-import { createRoom, joinRoom, onConnect, onDisconnect } from './net.js';
+import { createRoom, joinRoom, onConnect, onDisconnect, onRoomCode } from './net.js';
 
 export const canvas = document.getElementById('xr-canvas');
 export const overlay = document.getElementById('overlay');
@@ -86,6 +86,12 @@ export function wireUI() {
     hideAIOptions();
   });
   onDisconnect(() => { statusEl.textContent = 'Verbindung getrennt'; });
+  onRoomCode(code => {
+    if (roomCodeEl) roomCodeEl.value = code;
+    if (statusEl.textContent.startsWith('Warte')) {
+      statusEl.textContent = `Warte auf Gegner… Code: ${code}`;
+    }
+  });
 }
 
 export function setAimMode(mode) {
