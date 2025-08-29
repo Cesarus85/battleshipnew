@@ -2,6 +2,7 @@ import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.m
 import { Board } from "./board.js";
 import { FleetManager } from "./ships.js";
 import { getLastHitPose, matrixFromTransform, offsetLocalXZ, resetLastHitPose } from "./xrSession.js";
+import { makeAIState } from "./ai.js";
 import {
   statusEl,
   btnReset,
@@ -27,15 +28,11 @@ import {
   scene,
   reticle,
   picker,
-  STORAGE_KEY,
-  saveState,
-  loadState,
-  getSaveSnapshot,
   randomizeFleet,
-  makeAIState,
   aiState,
   setAIState
 } from "./main.js";
+import { STORAGE_KEY, saveState, loadState, getSaveSnapshot } from "./storage.js";
 import { playEarcon } from "./audio.js";
 
 export function onSqueeze() {
