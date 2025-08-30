@@ -118,27 +118,30 @@ export class Board {
 
   /* ---------- Koordinaten & Ray ---------- */
   raycastCell(worldRayOrigin, worldRayDir) {
-    const o = worldRayOrigin.clone().applyMatrix4(this.inverseMatrix);
-    const d = worldRayDir.clone().transformDirection(this.inverseMatrix);
+    const EPS = 1e-6;
 
-    const denom = d.y;
-    if (Math.abs(denom) < 1e-7) return { hit: false };
-    const t = -o.y / denom;
-    if (t < 0) return { hit: false };
+    const localOrigin = worldRayOrigin.clone().applyMatrix4(this.inverseMatrix);
+    const localDir = worldRayDir.clone().transformDirection(this.inverseMatrix);
 
-    const x = o.x + d.x * t;
-    const z = o.z + d.z * t;
+    const ray = new THREE.Ray(localOrigin, localDir);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const hitPoint = new THREE.Vector3();
+    if (!ray.intersectPlane(plane, hitPoint)) return { hit: false };
 
     const half = this.size / 2;
-    if (x < -half || x > half || z < -half || z > half) return { hit: false };
+    const x = hitPoint.x;
+    const z = hitPoint.z;
+
+    if (x < -half - EPS || x > half + EPS || z < -half - EPS || z > half + EPS) return { hit: false };
 
     const u = (x + half) / this.size;
     const v = (z + half) / this.size;
 
-    let col = Math.floor(u * this.cells);
-    let row = Math.floor(v * this.cells);
-    if (col === this.cells) col = this.cells - 1;
-    if (row === this.cells) row = this.cells - 1;
+    const uClamped = Math.min(1 - EPS, Math.max(0, u));
+    const vClamped = Math.min(1 - EPS, Math.max(0, v));
+
+    const col = Math.floor(uClamped * this.cells);
+    const row = Math.floor(vClamped * this.cells);
 
     const centerLocal = this.cellCenterLocal(row, col);
     const centerWorld = centerLocal.clone().applyMatrix4(this.group.matrixWorld);
