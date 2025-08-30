@@ -272,7 +272,10 @@ export class Board {
   /* ---------- Marker ---------- */
   markCell(row, col, color = 0xffffff, opacity = 0.9, order = 3) {
     const key = `${row},${col}`;
-    if (this.markers.has(key)) return;
+    if (this.markers.has(key)) {
+      this.updateMarker(row, col, color, opacity, order);
+      return;
+    }
 
     const r = (this.cellSize * 0.45);
     const geo = new THREE.CircleGeometry(r, 48);
@@ -287,6 +290,16 @@ export class Board {
     mesh.renderOrder = order;
     this.group.add(mesh);
     this.markers.set(key, mesh);
+    this.group.updateMatrixWorld(true);
+  }
+
+  updateMarker(row, col, color = 0xffffff, opacity = 0.9, order = 3) {
+    const key = `${row},${col}`;
+    const mesh = this.markers.get(key);
+    if (!mesh) return;
+    mesh.material.color.set(color);
+    mesh.material.opacity = opacity;
+    mesh.renderOrder = order;
     this.group.updateMatrixWorld(true);
   }
 
