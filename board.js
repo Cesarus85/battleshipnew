@@ -280,7 +280,8 @@ export class Board {
     const r = (this.cellSize * 0.45);
     const geo = new THREE.CircleGeometry(r, 48);
     geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: true, depthWrite: false });
+    // Disable depth testing so markers are always visible above the board surface
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false });
     const mesh = new THREE.Mesh(geo, mat);
 
     const local = this.cellCenterLocal(row, col);
