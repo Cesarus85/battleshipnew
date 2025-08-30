@@ -46,7 +46,7 @@ export const btnSave = document.getElementById('btnSave');
 export const btnLoad = document.getElementById('btnLoad');
 export const btnClear = document.getElementById('btnClear');
 
-export let aimMode = 'gaze';
+export let aimMode = 'controller';
 export let phase = 'placement';
 let connected = false;
 
