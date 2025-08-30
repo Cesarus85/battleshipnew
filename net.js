@@ -17,6 +17,12 @@ const resultQueue = [];
 const shotQueue = [];
 const placementQueue = [];
 
+// Toggle to enable/disable queue debug logs
+const DEBUG_QUEUE_LOGS = false;
+function queueLog(...args) {
+  if (DEBUG_QUEUE_LOGS) console.log(...args);
+}
+
 let localReady = false;
 let remoteReady = false;
 let bothReady = false;
@@ -105,6 +111,7 @@ function handleShotMessage(board, { row, col }) {
   if (phase === 'setup') {
     // Schüsse vor Spielstart sammeln und später abarbeiten
     shotQueue.push({ row, col });
+    queueLog('Shot queued during setup:', row, col, 'queue length:', shotQueue.length);
     return;
   }
   const res = board.receiveShot(row, col);
@@ -128,19 +135,27 @@ function handleShotMessage(board, { row, col }) {
 function flushResultQueue() {
   const board = getRemoteBoard();
   if (!board || !localReady || !remoteReady) return;
+  queueLog('Flushing result queue, items:', resultQueue.length);
+  let processed = 0;
   while (resultQueue.length) {
     const msg = resultQueue.shift();
     handleResultMessage(board, msg);
+    processed++;
   }
+  queueLog('Result queue flush complete, processed:', processed);
 }
 
 function flushShotQueue() {
   const board = getPlayerBoard();
   if (!board || !localReady || !remoteReady || phase === 'setup') return;
+  queueLog('Flushing shot queue, items:', shotQueue.length);
+  let processed = 0;
   while (shotQueue.length) {
     const msg = shotQueue.shift();
     handleShotMessage(board, msg);
+    processed++;
   }
+  queueLog('Shot queue flush complete, processed:', processed);
 }
 
 function flushPlacementQueue() {
@@ -304,6 +319,7 @@ function handleMessage(obj) {
       const board = getRemoteBoard();
       if (!board) {
         placementQueue.push(obj);
+        queueLog('Placement queued:', obj, 'queue length:', placementQueue.length);
         return;
       }
       board.placeShip(obj.row, obj.col, obj.length, obj.orientation);
@@ -311,6 +327,7 @@ function handleMessage(obj) {
       const board = getPlayerBoard();
       if (!board || !localReady || !remoteReady) {
         shotQueue.push(obj);
+        queueLog('Shot queued:', obj, 'queue length:', shotQueue.length);
         return;
       }
       handleShotMessage(board, obj);
@@ -318,6 +335,7 @@ function handleMessage(obj) {
       const { row, col, result } = obj;
       console.log('Incoming result message:', row, col, result);
       resultQueue.push({ row, col, result });
+      queueLog('Result queued:', row, col, result, 'queue length:', resultQueue.length);
       const board = getRemoteBoard();
       if (!board || !localReady || !remoteReady) return;
       flushResultQueue();
