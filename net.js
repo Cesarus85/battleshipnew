@@ -29,7 +29,7 @@ let bothReady = false;
 const readyHandlers = [];
 
 const phaseHandlers = [];
-let lastPhase = phase;
+let lastPhase;
 
 export function onPhaseChange(cb) {
   phaseHandlers.push(cb);
@@ -46,7 +46,7 @@ function monitorPhase() {
   requestAnimationFrame(monitorPhase);
 }
 
-monitorPhase();
+requestAnimationFrame(() => { lastPhase = phase; monitorPhase(); });
 
 function checkReady() {
   if (localReady && remoteReady && !bothReady) {
