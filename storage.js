@@ -109,7 +109,7 @@ export function loadState() {
     btnReset.disabled = false;
     if (btnMoveBoards) btnMoveBoards.disabled = false;
 
-    setAimMode(data.aimMode || "gaze");
+    setAimMode(data.aimMode || "controller");
     setOrientation(data.orientation || "H");
 
     // Fleet Manager wiederherstellen
