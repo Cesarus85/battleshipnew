@@ -8,8 +8,6 @@ import {
   canvas,
   overlay,
   statusEl,
-  btnStart,
-  btnStartSafe,
   btnReset,
   hoverCellEl,
   lastPickEl,
@@ -168,7 +166,9 @@ export function onSelect(e) {
     if (!ok) { statusEl.textContent = "Ungültige Position (außerhalb, Kollision oder Berührung)."; playEarcon("error"); buzzFromEvent(e, 0.1, 40); return; }
 
     playerBoard.placeShip(row, col, L, orientation);
-    send({ type: 'place', row, col, length: L, orientation });
+    if (netPlayerId !== null) {
+      send({ type: 'place', row, col, length: L, orientation });
+    }
     fleet.advance(row, col, L, orientation);
     lastPickEl.textContent = playerBoard.cellLabel(row, col);
     updateFleetUI();
@@ -178,10 +178,15 @@ export function onSelect(e) {
     saveState();
 
     if (fleet.complete()) {
-      statusEl.textContent = "Flotte komplett – warte auf Gegner …";
       playEarcon("start");
-      send({ type: 'ready' });
-      setLocalReady(true);
+      if (netPlayerId === null) {
+        statusEl.textContent = "Flotte komplett – Spiel startet …";
+        startGame();
+      } else {
+        statusEl.textContent = "Flotte komplett – warte auf Gegner …";
+        send({ type: 'ready' });
+        setLocalReady(true);
+      }
     }
     return;
   }

@@ -2,8 +2,10 @@ import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.m
 import {
   overlay,
   statusEl,
-  btnStart,
-  btnStartSafe,
+  btnStartSolo,
+  btnStartSafeSolo,
+  btnStartMulti,
+  btnStartSafeMulti,
   btnReset,
   hoverCellEl,
   aimInfoEl,
@@ -81,7 +83,8 @@ export async function startAR(mode = "regular") {
     try { hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace }); statusEl.textContent += " | hit-test aktiv."; }
     catch { hitTestSource = null; statusEl.textContent += " | hit-test NICHT verfügbar."; }
 
-    btnStart.disabled = true; btnStartSafe.disabled = true;
+    btnStartSolo.disabled = true; btnStartSafeSolo.disabled = true;
+    btnStartMulti.disabled = true; btnStartSafeMulti.disabled = true;
     btnReset.disabled = true;
     setAimMode(aimMode);
     setPhase("placement");
@@ -101,7 +104,8 @@ function onSessionEnd() {
   xrSession?.removeEventListener("inputsourceschange", onInputSourcesChange);
   xrSession = null; hitTestSource = null; lastHitPose = null;
   reticle.visible = false;
-  btnStart.disabled = false; btnStartSafe.disabled = false;
+  btnStartSolo.disabled = false; btnStartSafeSolo.disabled = false;
+  btnStartMulti.disabled = false; btnStartSafeMulti.disabled = false;
   btnReset.disabled = !!playerBoard;
   aimInfoEl.textContent = "";
   setPhase("placement");

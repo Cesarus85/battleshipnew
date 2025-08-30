@@ -7,6 +7,7 @@ import {
   statusEl,
   btnReset,
   btnMoveBoards,
+  btnStartGame,
   hoverCellEl,
   lastPickEl,
   turnEl,
@@ -170,6 +171,7 @@ function randomizeFleet(board, lengths) {
 
 export function startGame() {
   if (!fleet || !playerBoard || !enemyBoard) return;
+  if (btnStartGame) btnStartGame.style.display = 'none';
   if (netPlayerId === null) {
     randomizeFleet(enemyBoard, [5,4,3,3,2]);
   }
