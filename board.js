@@ -184,14 +184,12 @@ export class Board {
 
   _inBounds(r, c) { return r >= 0 && r < this.cells && c >= 0 && c < this.cells; }
 
-  // NEU: keine Berührung – auch diagonale Nachbarn sind verboten
+  // Berührung nur orthogonal verboten (nicht diagonal)
   _hasAdjacentOccupied(r, c) {
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        const rr = r + dr, cc = c + dc;
-        if (!this._inBounds(rr, cc)) continue;
-        if (this.grid[rr][cc] === 1) return true;
-      }
+    // Nur direkte Nachbarn (oben, unten, links, rechts) prüfen
+    const neighbors = [[r-1,c], [r+1,c], [r,c-1], [r,c+1]];
+    for (const [rr, cc] of neighbors) {
+      if (this._inBounds(rr, cc) && this.grid[rr][cc] === 1) return true;
     }
     return false;
   }

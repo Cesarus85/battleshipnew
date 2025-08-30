@@ -24,13 +24,17 @@ const readyHandlers = [];
 function checkReady() {
   if (localReady && remoteReady && !bothReady) {
     bothReady = true;
+    console.log('Both players ready, flushing queues');
     readyHandlers.forEach(cb => { try { cb(); } catch {} });
     flushShotQueue();
+    flushResultQueue();
   }
 }
 
 export function setLocalReady(v) {
+  console.log('Setting local ready:', v);
   localReady = v;
+  if (!v) bothReady = false; // Reset if going back to not ready
   checkReady();
 }
 
@@ -245,6 +249,7 @@ function handleMessage(obj) {
       }
       handleResultMessage(board, { row, col, result });
     } else if (obj.type === 'ready') {
+      console.log('Remote player ready');
       remoteReady = true;
       checkReady();
     }
