@@ -15,6 +15,7 @@ const statusHandlers = [];
 
 const resultQueue = [];
 const shotQueue = [];
+const placementQueue = [];
 
 let localReady = false;
 let remoteReady = false;
@@ -110,7 +111,19 @@ function flushShotQueue() {
   }
 }
 
-onRemoteBoardSet(flushResultQueue);
+function flushPlacementQueue() {
+  const board = getRemoteBoard();
+  if (!board) return;
+  while (placementQueue.length) {
+    const msg = placementQueue.shift();
+    board.placeShip(msg.row, msg.col, msg.length, msg.orientation);
+  }
+}
+
+onRemoteBoardSet(() => {
+  flushResultQueue();
+  flushPlacementQueue();
+});
 onPlayerBoardSet(flushShotQueue);
 
 let roomCode = null;
@@ -237,7 +250,11 @@ function handleMessage(obj) {
   }
     if (obj.type === 'place') {
       const board = getRemoteBoard();
-      board?.placeShip(obj.row, obj.col, obj.length, obj.orientation);
+      if (!board) {
+        placementQueue.push(obj);
+        return;
+      }
+      board.placeShip(obj.row, obj.col, obj.length, obj.orientation);
     } else if (obj.type === 'shot') {
       const board = getPlayerBoard();
       if (!board || !localReady || !remoteReady) {
