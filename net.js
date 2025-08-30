@@ -62,6 +62,10 @@ function handleResultMessage(board, { row, col, result }) {
   } else if (result === 'miss') {
     board.markCell(row, col, 0xd0d5de, 0.9);
     board.pulseAtCell(row, col, 0xd0d5de, 0.5);
+  } else if (result === 'repeat') {
+    board.markCell(row, col, 0x95a5a6, 0.9);
+    board.pulseAtCell(row, col, 0x95a5a6, 0.4);
+    emitStatus('Feld bereits beschossen');
   }
   board.registerShot?.(row, col, result);
   if (board.allShipsSunk()) gameOver('player');
