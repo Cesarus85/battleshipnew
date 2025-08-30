@@ -9,7 +9,7 @@ h1 { font-size: 20px; margin: 0 0 8px; }
 .buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 button { flex: 1 1 auto; min-width: 140px; padding: 12px 14px; font-size: 16px; border-radius: 12px; border: 0; background: #1f87ff; color: #fff; cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: default; }
-#btnStartSafe { background: #6272ff; }
+#btnStartSafeSolo, #btnStartSafeMulti { background: #6272ff; }
 #btnReset { background: #444; }
 .toggle { display: flex; gap: 8px; align-items: center; margin: 6px 0 10px; flex-wrap: wrap; }
 .toggle button { flex: 0 0 auto; min-width: 180px; }

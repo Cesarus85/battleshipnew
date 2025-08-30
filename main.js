@@ -8,8 +8,6 @@ import {
   canvas,
   overlay,
   statusEl,
-  btnStart,
-  btnStartSafe,
   btnReset,
   hoverCellEl,
   lastPickEl,

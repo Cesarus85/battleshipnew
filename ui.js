@@ -16,8 +16,10 @@ import { createRoom, joinRoom, onConnect, onDisconnect, onRoomCode, onStatus } f
 export const canvas = document.getElementById('xr-canvas');
 export const overlay = document.getElementById('overlay');
 export const statusEl = document.getElementById('status');
-export const btnStart = document.getElementById('btnStart');
-export const btnStartSafe = document.getElementById('btnStartSafe');
+export const btnStartSolo = document.getElementById('btnStartSolo');
+export const btnStartSafeSolo = document.getElementById('btnStartSafeSolo');
+export const btnStartMulti = document.getElementById('btnStartMulti');
+export const btnStartSafeMulti = document.getElementById('btnStartSafeMulti');
 export const btnReset = document.getElementById('btnReset');
 export const hoverCellEl = document.getElementById('hoverCell');
 export const lastPickEl = document.getElementById('lastPick');
@@ -49,8 +51,10 @@ export let phase = 'placement';
 let connected = false;
 
 export function wireUI() {
-  btnStart.addEventListener('click', () => { initAudio(); startAR('regular'); });
-  btnStartSafe.addEventListener('click', () => { initAudio(); startAR('safe'); });
+  btnStartSolo.addEventListener('click', () => { initAudio(); startAR('regular'); });
+  btnStartSafeSolo.addEventListener('click', () => { initAudio(); startAR('safe'); });
+  btnStartMulti.addEventListener('click', () => { initAudio(); startAR('regular'); });
+  btnStartSafeMulti.addEventListener('click', () => { initAudio(); startAR('safe'); });
   btnReset.addEventListener('click', resetAll);
 
   btnAimGaze.addEventListener('click', () => { setAimMode('gaze'); saveState(); });

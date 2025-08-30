@@ -16,6 +16,7 @@
     #persistBtns button { min-width:140px; }
     #netUi { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
     #netUi input { flex:1 1 140px; padding:12px 14px; font-size:16px; border-radius:12px; border:0; }
+    .hint { font-size:13px; opacity:.9; margin:6px 0; }
   </style>
 </head>
 <body>
@@ -25,15 +26,30 @@
       <h1>AR Battleship</h1>
       <p id="status">AR starten → Reticle auf Tisch → <strong>Trigger/Pinch platziert</strong> die Bretter.</p>
 
-      <div id="netUi" class="buttons">
-        <input id="roomCode" placeholder="Raumcode" />
-        <button id="btnCreateRoom">Raum erstellen</button>
-        <button id="btnJoinRoom">Raum beitreten</button>
-      </div>
+      <section id="soloOpts">
+        <h2>Solo-Spiel</h2>
+        <p class="hint">AR starten → Schiffe platzieren → <strong>Spiel starten</strong></p>
+        <div class="buttons">
+          <button id="btnStartSolo">AR starten</button>
+          <button id="btnStartSafeSolo">AR (Safe-Mode)</button>
+        </div>
+      </section>
 
-      <div class="buttons">
-        <button id="btnStart">AR starten</button>
-        <button id="btnStartSafe">AR (Safe-Mode)</button>
+      <section id="multiOpts" style="margin-top:10px;">
+        <h2>Multiplayer</h2>
+        <p class="hint">Raum erstellen oder beitreten → AR starten → Schiffe platzieren</p>
+        <div id="netUi" class="buttons">
+          <input id="roomCode" placeholder="Raumcode" />
+          <button id="btnCreateRoom">Raum erstellen</button>
+          <button id="btnJoinRoom">Raum beitreten</button>
+        </div>
+        <div class="buttons">
+          <button id="btnStartMulti">AR starten</button>
+          <button id="btnStartSafeMulti">AR (Safe-Mode)</button>
+        </div>
+      </section>
+
+      <div class="buttons" style="margin-top:10px;">
         <button id="btnReset" disabled>Zurücksetzen</button>
       </div>
 
