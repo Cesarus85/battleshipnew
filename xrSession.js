@@ -145,9 +145,13 @@ function onXRFrame(time, frame) {
     } else if (playerBoard) { playerBoard.clearGhost(); }
   } else if (phase === "play") {
     if (netPlayerId !== null) {
-      // Hover-Indikator immer anzeigen, aber nur bei eigenem Zug interaktiv
-      picker.setBoard(remoteBoard); 
-      updateHover();
+      // Hover-Indikator nur anzeigen, wenn Gegnerbrett existiert und eigener Zug
+      if (remoteBoard && !remoteTurn) {
+        picker.setBoard(remoteBoard);
+        updateHover();
+      } else {
+        picker.setBoard(null);
+      }
     } else {
       if (turn === "player") { picker.setBoard(enemyBoard); updateHover(); }
       else { picker.setBoard(null); }
