@@ -49,6 +49,10 @@ export function isRemoteReady() {
 }
 
 function handleResultMessage(board, { row, col, result }) {
+  if (!board._inBounds(row, col)) {
+    console.warn('Result coordinates out of bounds:', row, col);
+    return;
+  }
   if (result === 'hit' || result === 'sunk') {
     board.markCell(row, col, 0x2ecc71, 0.9);
     board.pulseAtCell(row, col, 0x2ecc71, 0.6);
@@ -74,6 +78,10 @@ function handleResultMessage(board, { row, col, result }) {
 }
 
 function handleShotMessage(board, { row, col }) {
+  if (!board._inBounds(row, col)) {
+    console.warn('Shot coordinates out of bounds:', row, col);
+    return;
+  }
   if (phase === 'setup') {
     // Schüsse vor Spielstart sammeln und später abarbeiten
     shotQueue.push({ row, col });
