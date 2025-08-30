@@ -107,7 +107,7 @@ function handleShotMessage(board, { row, col }) {
 
 function flushResultQueue() {
   const board = getRemoteBoard();
-  if (!board) return;
+  if (!board || !localReady || !remoteReady) return;
   while (resultQueue.length) {
     const msg = resultQueue.shift();
     handleResultMessage(board, msg);
@@ -284,12 +284,11 @@ function handleMessage(obj) {
       handleShotMessage(board, obj);
     } else if (obj.type === 'result') {
       const { row, col, result } = obj;
+      console.log('Incoming result message:', row, col, result);
+      resultQueue.push({ row, col, result });
       const board = getRemoteBoard();
-      if (!board) {
-        resultQueue.push({ row, col, result });
-        return;
-      }
-      handleResultMessage(board, { row, col, result });
+      if (!board || !localReady || !remoteReady) return;
+      flushResultQueue();
     } else if (obj.type === 'ready') {
       console.log('Remote player ready');
       remoteReady = true;
