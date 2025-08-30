@@ -22,6 +22,26 @@ let remoteReady = false;
 let bothReady = false;
 const readyHandlers = [];
 
+const phaseHandlers = [];
+let lastPhase = phase;
+
+export function onPhaseChange(cb) {
+  phaseHandlers.push(cb);
+}
+
+function monitorPhase() {
+  if (phase !== lastPhase) {
+    const prev = lastPhase;
+    lastPhase = phase;
+    phaseHandlers.forEach(cb => {
+      try { cb(phase, prev); } catch {}
+    });
+  }
+  requestAnimationFrame(monitorPhase);
+}
+
+monitorPhase();
+
 function checkReady() {
   if (localReady && remoteReady && !bothReady) {
     bothReady = true;
@@ -137,6 +157,18 @@ onRemoteBoardSet(() => {
   flushPlacementQueue();
 });
 onPlayerBoardSet(flushShotQueue);
+
+let phaseListenerRegistered = false;
+onReady(() => {
+  if (phaseListenerRegistered) return;
+  phaseListenerRegistered = true;
+  onPhaseChange((newPhase, oldPhase) => {
+    if (oldPhase === 'setup' && newPhase === 'play') {
+      flushShotQueue();
+      flushResultQueue();
+    }
+  });
+});
 
 let roomCode = null;
 let pendingOffer = null;
