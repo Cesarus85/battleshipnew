@@ -136,6 +136,8 @@ const pendingRemoteCandidates = [];
 let msgCounter = 0;
 const pending = new Map();
 const received = new Set();
+const receivedQueue = [];
+const MAX_RECEIVED_IDS = 500;
 const RESEND_MS = 1000;
 const LATENCY_THRESHOLD = 1500;
 let latencyHandler = () => {};
@@ -166,6 +168,7 @@ function emitDisconnect(reason) {
   pending.forEach(p => clearTimeout(p.timer));
   pending.clear();
   received.clear();
+  receivedQueue.length = 0;
   latencyHigh = false;
   socket = null;
   pc = null;
@@ -247,6 +250,11 @@ function handleMessage(obj) {
     sendAck(obj.id);
     if (received.has(obj.id)) return;
     received.add(obj.id);
+    receivedQueue.push(obj.id);
+    if (receivedQueue.length > MAX_RECEIVED_IDS) {
+      const oldId = receivedQueue.shift();
+      received.delete(oldId);
+    }
   }
     if (obj.type === 'place') {
       const board = getRemoteBoard();
