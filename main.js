@@ -208,6 +208,8 @@ export function onSelect(e) {
         playEarcon("error"); buzzFromEvent(e, 0.1, 40); return;
       }
       send({ type: 'shot', row, col });
+      remoteBoard.markCell(row, col, 0x95a5a6, 0.5);
+      remoteBoard.shots[row][col] = 1;
       lastPickEl.textContent = remoteBoard.cellLabel(row, col);
       setRemoteTurn(true);
       setTurn('ai');
