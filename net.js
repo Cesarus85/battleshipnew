@@ -159,6 +159,11 @@ function emitDisconnect(reason) {
   channel = null;
   remoteDescSet = false;
   pendingRemoteCandidates.length = 0;
+  localReady = false;
+  remoteReady = false;
+  bothReady = false;
+  shotQueue.length = 0;
+  resultQueue.length = 0;
   disconnectHandlers.forEach(cb => {
     try { cb(reason); } catch {}
   });
