@@ -28,6 +28,7 @@ import {
   setOrientation,
   setTurnValue,
   scene,
+  camera,
   reticle,
   picker,
   aiState,
@@ -46,6 +47,14 @@ export function placeBoardsFromReticle() {
   if (!hitPose || playerBoard || enemyBoard) return;
 
   const baseM = new THREE.Matrix4().fromArray(hitPose.matrix ?? matrixFromTransform(hitPose));
+
+  // Spieler-Yaw aus Kameramatrix extrahieren und Rotation anpassen
+  const pos = new THREE.Vector3();
+  const scl = new THREE.Vector3();
+  baseM.decompose(pos, new THREE.Quaternion(), scl);
+  const camEuler = new THREE.Euler().setFromRotationMatrix(camera.matrixWorld);
+  const yawQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), camEuler.y);
+  baseM.compose(pos, yawQuat, scl);
 
   setPlayerBoard(new Board(0.50, 10, { baseColor: 0x0d1b2a, shipColor: 0x5dade2, showShips: true }));
   playerBoard.placeAtMatrix(baseM);
