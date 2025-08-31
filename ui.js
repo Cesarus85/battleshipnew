@@ -15,7 +15,6 @@ import { createRoom, joinRoom, onConnect, onDisconnect, onRoomCode, onStatus } f
 
 export const canvas = document.getElementById('xr-canvas');
 export const overlay = document.getElementById('overlay');
-export const resultBanner = document.getElementById('resultBanner');
 export const statusEl = document.getElementById('status');
 export const btnStartSolo = document.getElementById('btnStartSolo');
 export const btnStartSafeSolo = document.getElementById('btnStartSafeSolo');

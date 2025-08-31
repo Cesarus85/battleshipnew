@@ -1,7 +1,5 @@
-import { setPhase, statusEl, resultBanner } from './ui.js';
+import { setPhase, statusEl } from './ui.js';
 import { playEarcon } from './audio.js';
-import { resetAll } from './main.js';
-import { xrSession } from './xrSession.js';
 
 // Rendering and scene objects
 export let renderer = null;
@@ -62,16 +60,10 @@ export function setAIState(v) { aiState = v; }
 export function gameOver(winner) {
   setPhase('gameover');
   if (picker) picker.setBoard(null);
-  const msg = winner === 'player' ? 'Du hast gewonnen!' : 'Du hast verloren!';
-  statusEl.textContent = msg;
-  resultBanner.textContent = msg;
-  resultBanner.classList.remove('hidden');
+  const enemyTxt = netPlayerId !== null ? 'Gegner hat gewonnen.' : 'KI hat gewonnen.';
+  const msg = winner === 'player' ? 'Du hast gewonnen! 🎉' : enemyTxt;
+  statusEl.textContent = msg + " Tippe 'Zurücksetzen' für ein neues Spiel.";
   playEarcon(winner === 'player' ? 'win' : 'lose');
-  setTimeout(() => {
-    resultBanner.classList.add('hidden');
-    resetAll();
-    xrSession?.end();
-  }, 3000);
 }
 
 /* ---------- Sunk: umliegende Felder markieren ---------- */

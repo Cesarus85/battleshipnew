@@ -13,8 +13,7 @@ import {
   setPhase,
   diagnose,
   aimMode,
-  phase,
-  resultBanner
+  phase
 } from "./ui.js";
 
 import {
@@ -54,35 +53,21 @@ export async function startAR(mode = "regular") {
   try {
     const supported = await navigator.xr.isSessionSupported?.("immersive-ar");
     if (supported === false) { statusEl.textContent = "Dieser Browser unterstützt 'immersive-ar' nicht. Bitte Quest-Browser updaten."; await diagnose(); return; }
-    const overlayRoot = (overlay && overlay.getClientRects().length > 0) ? overlay : document.body;
-    if (overlayRoot === document.body && resultBanner.parentElement !== document.body) {
-      document.body.appendChild(resultBanner);
-    }
     const configs = mode === "safe"
       ? [
-          { note: "SAFE: minimale Features", init: { requiredFeatures: [], optionalFeatures: overlayRoot === document.body ? ["dom-overlay"] : [], ...(overlayRoot === document.body ? { domOverlay: { root: overlayRoot } } : {}) } },
-          { note: "SAFE: optional hit-test", init: { requiredFeatures: [], optionalFeatures: ["hit-test", ...(overlayRoot === document.body ? ["dom-overlay"] : [])], ...(overlayRoot === document.body ? { domOverlay: { root: overlayRoot } } : {}) } },
+          { note: "SAFE: minimale Features", init: { requiredFeatures: [], optionalFeatures: [] } },
+          { note: "SAFE: optional hit-test", init: { requiredFeatures: [], optionalFeatures: ["hit-test"] } },
         ]
       : [
-          { note: "regular: hit-test + dom-overlay", init: { requiredFeatures: ["hit-test", "dom-overlay"], optionalFeatures: ["anchors", "hand-tracking"], domOverlay: { root: overlayRoot } } },
+          { note: "regular: hit-test + optional dom-overlay", init: { requiredFeatures: ["hit-test"], optionalFeatures: ["dom-overlay", "anchors", "hand-tracking"], domOverlay: { root: overlay } } },
+          { note: "regular-fallback: hit-test (kein dom-overlay)", init: { requiredFeatures: ["hit-test"], optionalFeatures: ["anchors", "hand-tracking"] } },
         ];
     let lastErr = null;
     for (const cfg of configs) {
-      try {
-        xrSession = await navigator.xr.requestSession("immersive-ar", cfg.init);
-        statusEl.textContent = `AR gestartet (${cfg.note}).`;
-        break;
-      }
+      try { xrSession = await navigator.xr.requestSession("immersive-ar", cfg.init); statusEl.textContent = `AR gestartet (${cfg.note}).`; break; }
       catch (e) { lastErr = e; }
     }
-    if (!xrSession) {
-      if (mode !== "safe") {
-        statusEl.textContent = "DOM-Overlay wird benötigt, ist jedoch nicht verfügbar.";
-        await diagnose();
-        return;
-      }
-      throw lastErr || new Error("requestSession fehlgeschlagen (unbekannt)");
-    }
+    if (!xrSession) throw lastErr || new Error("requestSession fehlgeschlagen (unbekannt)");
 
     renderer.xr.setReferenceSpaceType("local");
     await renderer.xr.setSession(xrSession);
