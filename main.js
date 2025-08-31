@@ -52,7 +52,7 @@ import {
   playerBoard, setPlayerBoard,
   enemyBoard, setEnemyBoard,
   remoteBoard,
-  remoteTurn, setRemoteTurn,
+  remoteTurn, setRemoteTurn, setRemoteBoard,
   netPlayerId,
   fleet, setFleet,
   orientation, setOrientation,
@@ -271,6 +271,7 @@ export function resetAll() {
   if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
 
   setPlayerBoard(null); setEnemyBoard(null);
+  setRemoteBoard(null); setRemoteTurn(false);
   setFleet(null); setAIState(null);
   setOrientation("H");
   hoverCellEl.textContent = "–";
