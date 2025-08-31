@@ -1,5 +1,7 @@
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { setPhase, statusEl } from './ui.js';
 import { playEarcon } from './audio.js';
+import { xrSession } from './xrSession.js';
 
 // Rendering and scene objects
 export let renderer = null;
@@ -57,13 +59,73 @@ export let aiState = null;
 export function setAIState(v) { aiState = v; }
 
 /* ---------- Game Over ---------- */
+let statusBadge = null;
+
+function createStatusBadge(message, isWin) {
+  if (statusBadge) {
+    scene.remove(statusBadge);
+    statusBadge = null;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  
+  ctx.fillStyle = isWin ? '#2ecc71' : '#e74c3c';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 48px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(message, canvas.width/2, canvas.height/2);
+  
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.MeshBasicMaterial({ 
+    map: texture, 
+    transparent: true, 
+    opacity: 0.9,
+    side: THREE.DoubleSide
+  });
+  const geometry = new THREE.PlaneGeometry(1.0, 0.5);
+  statusBadge = new THREE.Mesh(geometry, material);
+  
+  if (camera) {
+    const cameraPos = camera.position.clone();
+    const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    statusBadge.position.copy(cameraPos).add(cameraDir.multiplyScalar(2));
+    statusBadge.lookAt(cameraPos);
+  } else {
+    statusBadge.position.set(0, 1.5, -2);
+  }
+  
+  scene.add(statusBadge);
+  return statusBadge;
+}
+
 export function gameOver(winner) {
   setPhase('gameover');
   if (picker) picker.setBoard(null);
-  const enemyTxt = netPlayerId !== null ? 'Gegner hat gewonnen.' : 'KI hat gewonnen.';
-  const msg = winner === 'player' ? 'Du hast gewonnen! 🎉' : enemyTxt;
+  
+  const isWin = winner === 'player';
+  const enemyTxt = netPlayerId !== null ? 'Verloren' : 'KI Gewonnen';
+  const message = isWin ? 'GEWONNEN!' : enemyTxt;
+  const statusMsg = netPlayerId !== null ? 'Gegner hat gewonnen.' : 'KI hat gewonnen.';
+  const msg = isWin ? 'Du hast gewonnen! 🎉' : statusMsg;
+  
   statusEl.textContent = msg + " Tippe 'Zurücksetzen' für ein neues Spiel.";
-  playEarcon(winner === 'player' ? 'win' : 'lose');
+  playEarcon(isWin ? 'win' : 'lose');
+  
+  if (scene && xrSession) {
+    createStatusBadge(message, isWin);
+    
+    setTimeout(() => {
+      if (xrSession) {
+        xrSession.end();
+      }
+    }, 3000);
+  }
 }
 
 /* ---------- Sunk: umliegende Felder markieren ---------- */
