@@ -34,7 +34,8 @@ import {
 import {
   onSelect,
   onSqueeze,
-  checkPendingLoad
+  checkPendingLoad,
+  resetAll
 } from "./main.js";
 
 export let xrSession = null;
@@ -109,6 +110,7 @@ function onSessionEnd() {
   btnReset.disabled = !!playerBoard;
   aimInfoEl.textContent = "";
   setPhase("placement");
+  resetAll();
 }
 
 function onInputSourcesChange() {

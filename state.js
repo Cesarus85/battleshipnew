@@ -114,7 +114,7 @@ export function gameOver(winner) {
   const statusMsg = netPlayerId !== null ? 'Gegner hat gewonnen.' : 'KI hat gewonnen.';
   const msg = isWin ? 'Du hast gewonnen! 🎉' : statusMsg;
   
-  statusEl.textContent = msg + " Tippe 'Zurücksetzen' für ein neues Spiel.";
+  statusEl.textContent = msg;
   playEarcon(isWin ? 'win' : 'lose');
   
   if (scene && xrSession) {
