@@ -61,11 +61,20 @@ export function setAIState(v) { aiState = v; }
 /* ---------- Game Over ---------- */
 let statusBadge = null;
 
-function createStatusBadge(message, isWin) {
+export function clearStatusBadge() {
   if (statusBadge) {
-    scene.remove(statusBadge);
+    if (scene) scene.remove(statusBadge);
+    if (statusBadge.geometry) statusBadge.geometry.dispose();
+    if (statusBadge.material) {
+      if (statusBadge.material.map) statusBadge.material.map.dispose();
+      statusBadge.material.dispose();
+    }
     statusBadge = null;
   }
+}
+
+function createStatusBadge(message, isWin) {
+  clearStatusBadge();
 
   const canvas = document.createElement('canvas');
   canvas.width = 512;

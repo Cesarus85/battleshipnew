@@ -59,7 +59,8 @@ import {
   turn,
   aiState, setAIState,
   markAroundShip,
-  gameOver
+  gameOver,
+  clearStatusBadge
 } from "./state.js";
 
 export { startAR };
@@ -269,6 +270,7 @@ export function resetAll() {
   picker.setBoard(null);
   if (playerBoard) { playerBoard.removeFromScene(scene); playerBoard.dispose(); }
   if (enemyBoard)  { enemyBoard.removeFromScene(scene);  enemyBoard.dispose();  }
+  clearStatusBadge();
 
   setPlayerBoard(null); setEnemyBoard(null);
   setRemoteBoard(null); setRemoteTurn(false);
