@@ -175,12 +175,20 @@ function randomizeFleet(board, lengths) {
       }
     }
   }
+
+  // Validate that exactly the expected number of ships have been placed
+  console.assert(board.ships.length === lengths.length,
+    `Expected ${lengths.length} ships, but got ${board.ships.length}`);
 }
 
 export function startGame() {
   if (!fleet || !playerBoard || !enemyBoard) return;
-  if (netPlayerId === null) {
+  if (netPlayerId === null && !enemyBoard.__randomized) {
+    if (enemyBoard.ships.length > 0) {
+      enemyBoard.resetFleet();
+    }
     randomizeFleet(enemyBoard, [5,4,3,3,2]);
+    enemyBoard.__randomized = true; // Flag to avoid re-randomizing
   }
   setPhase("play");
   const startTurn = netPlayerId === null ? 'player' : (netPlayerId === 0 ? 'player' : 'ai');
